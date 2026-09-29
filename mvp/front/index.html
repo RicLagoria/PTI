@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Visor Agrícola - Streaming de Detecciones</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { margin: 0; padding: 0; font-family: sans-serif; display: flex; height: 100vh; }
+    #sidebar { width: 330px; background: #1e293b; color: white; padding: 20px; box-sizing: border-box; display: flex; flex-direction: column; gap: 15px; }
+    #map { flex: 1; height: 100%; }
+    button { background: #10b981; color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    button:disabled { background: #64748b; cursor: not-allowed; }
+    .stat-box { background: #334155; padding: 12px; border-radius: 6px; font-size: 13px; }
+    .progress-bar-bg { background: #475569; width: 100%; height: 10px; border-radius: 5px; overflow: hidden; margin-top: 8px; }
+    .progress-bar-fill { background: #38bdf8; height: 100%; width: 0%; transition: width 0.3s; }
+  </style>
+</head>
+<body>
+
+  <div id="sidebar">
+    <h2>Control de Lote</h2>
+    <div class="stat-box">
+      <p><b>Estado:</b> <span id="lbl-estado">Cargando ortomosaico...</span></p>
+      <p><b>Detecciones acumuladas:</b> <span id="lbl-total-det">0</span></p>
+      <p><b>Progreso:</b> <span id="lbl-pct">0%</span></p>
+      <div class="progress-bar-bg">
+        <div id="bar-fill" class="progress-bar-fill"></div>
+      </div>
+    </div>
+    <button id="btn-analizar" onclick="iniciarAnalisisEnVivo()">⚡ Analizar Cuadrante 3 (En Vivo)</button>
+  </div>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const API_BASE = "http://localhost:8000";
+    let map = L.map('map');
+    let capaDetecciones = L.layerGroup().addTo(map);
+    let totalDetecciones = 0;
+
+    // Inicialización del visor y teselas dinámicas
+    fetch(`${API_BASE}/metadata`)
+      .then(res => res.json())
+      .then(meta => {
+        map.fitBounds(meta.bounds);
+        L.tileLayer(`${API_BASE}/tiles/{z}/{x}/{y}.png`, {
+          minZoom: meta.minzoom,
+          maxZoom: meta.maxzoom,
+          attribution: 'Ortomosaico Local'
+        }).addTo(map);
+        document.getElementById("lbl-estado").innerText = "Listo para iniciar";
+      })
+      .catch(err => {
+        document.getElementById("lbl-estado").innerText = "Error cargando mapa";
+      });
+
+    function iniciarAnalisisEnVivo() {
+      const btn = document.getElementById("btn-analizar");
+      btn.disabled = true;
+      btn.innerText = "Procesando en tiempo real...";
+      document.getElementById("lbl-estado").innerText = "Analizando celdas...";
+      
+      // Reiniciar contadores y capas
+      capaDetecciones.clearLayers();
+      totalDetecciones = 0;
+      document.getElementById("lbl-total-det").innerText = "0";
+      actualizarBarra(0);
+
+      // Abrir conexión Server-Sent Events (SSE)
+      const eventSource = new EventSource(`${API_BASE}/analizar-stream?cuadrante=3&conf=0.10`);
+
+      eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        // 1. Actualizar métricas visuales del bloque recibido
+        actualizarBarra(data.progreso_pct);
+        totalDetecciones += data.detecciones.length;
+        document.getElementById("lbl-total-det").innerText = totalDetecciones;
+
+        // 2. Estampar los nuevos puntos en el mapa inmediatamente
+        data.detecciones.forEach(d => {
+          const marker = L.circleMarker([d.gps_centro.lat, d.gps_centro.lon], {
+            radius: 5,
+            color: '#ef4444',
+            fillColor: '#f87171',
+            fillOpacity: 0.85,
+            weight: 2
+          });
+
+          marker.bindPopup(`
+            <b>Clase:</b> ${d.clase}<br>
+            <b>Confianza:</b> ${d.confianza}%<br>
+            <b>Lat/Lon:</b> ${d.gps_centro.lat.toFixed(5)}, ${d.gps_centro.lon.toFixed(5)}
+          `);
+
+          capaDetecciones.addLayer(marker);
+        });
+
+        // 3. Cerrar conexión al alcanzar el 100%
+        if (data.bloque >= data.total_bloques) {
+          eventSource.close();
+          document.getElementById("lbl-estado").innerText = "Análisis completado";
+          btn.disabled = false;
+          btn.innerText = "⚡ Reanalizar Cuadrante 3";
+        }
+      };
+
+      eventSource.onerror = (err) => {
+        console.error("Error en streaming:", err);
+        eventSource.close();
+        document.getElementById("lbl-estado").innerText = "Flujo finalizado o interrumpido";
+        btn.disabled = false;
+        btn.innerText = "Reintentar";
+      };
+    }
+
+    function actualizarBarra(pct) {
+      document.getElementById("lbl-pct").innerText = `${pct}%`;
+      document.getElementById("bar-fill").style.width = `${pct}%`;
+    }
+  </script>
+</body>
+</html>
