@@ -18,13 +18,13 @@ Proyecto Tecnológico Integrador (2026): aplicación web que analiza ortomosaico
 Python 3.9.13. No hay tests, linter ni build configurados.
 
 ```bash
-# Dependencias del MVP (ojo: el nombre del archivo tiene un espacio)
-pip install -r "mvp/requerimientos .txt"
+# Dependencias del MVP: listadas en "mvp/requerimientos .txt" (el nombre tiene un espacio).
+# No sirve con `pip install -r` tal cual: contiene la línea "Python 3.9.13".
 
 # Backend (FastAPI) — debe ejecutarse desde mvp/back, ver "Rutas relativas"
 cd mvp/back && uvicorn server:app --reload --port 8000
 
-# Pipeline de detección sin servidor (escribe detecciones_campo.json)
+# Pipeline de detección sin servidor (escribe detecciones_campo.json; espera "El Azul_COG.tif" en el cwd)
 cd mvp/back && python predict.py
 
 # Frontend: HTML estático sin build; abrir mvp/front/index.html en el navegador
@@ -37,31 +37,34 @@ El `requerimientos.txt` de la raíz corresponde al entorno de entrenamiento/etiq
 
 ### Rutas relativas (requisito para ejecutar)
 
-El backend resuelve todo contra el directorio de trabajo y ninguno de estos archivos está en `mvp/back/`:
+El backend resuelve todo contra el directorio de trabajo:
 
-- Pesos: `runs/detect/train-2/weights/best.pt` (hardcodeado en `detector.py` y `predict.py`). Los pesos reales están en `entrenar ia/runs/detect/train-2/weights/`.
-- Ortomosaico: `El Azul_COG.tif` (`RUTA_COG_DEFAULT` en `server.py`). No está en el repo; debe ser un Cloud Optimized GeoTIFF.
+- Pesos: `runs/detect/train-2/weights/best.pt` (hardcodeado en `detector.py` y `predict.py`). Los pesos reales están en `entrenar ia/runs/detect/train-2/weights/`; hay que copiarlos/enlazarlos dentro de `mvp/back/`.
+- Imágenes subidas: `data/imagenes/` (variable `UPLOAD_DIR`), ignorado por git. El tope de subida es `MAX_UPLOAD_MB` (8192 por defecto).
 
-Hay que copiarlos/enlazarlos dentro de `mvp/back/` o pasar `tif_path` como query param.
+Hay un ortomosaico de prueba en `img/ortomosaico/El Azul_COG.tif` (1,3 GB, EPSG:4326, ignorado por git).
 
 ## Arquitectura del MVP
 
 Flujo: `front/index.html` (Leaflet) ⇄ `back/server.py` (FastAPI) → `predict.py` (orquestación) → `geo.py` (lectura del raster) + `detector.py` (YOLO).
 
-- **`server.py`** expone dos funciones independientes sobre el mismo TIFF:
-  - Visualización: `/tiles/{z}/{x}/{y}.png` y `/metadata` usan `rio-tiler` para servir teselas XYZ directamente desde el COG; Leaflet las consume como `tileLayer`.
-  - Análisis: `/analizar-stream` (SSE) y `/analizar` (POST, fallback que solo devuelve el último bloque) consumen el generador de `predict.py`.
-- **`predict.py`** — `ejecutar_inspeccion_segmentada` es un **generador**: divide las celdas en ~10 segmentos y hace `yield` de un chunk por segmento (progreso + detecciones nuevas). El servidor serializa cada chunk como evento SSE. En el `finally` siempre escribe `detecciones_campo.json` con lo acumulado, incluso si se interrumpe.
+- **`almacen.py`** — cada ortomosaico subido vive en `UPLOAD_DIR/<id>/` (`imagen.tif` ya como COG, `meta.json`, `detecciones.json`). El id es un UUID hex generado por el servidor y es lo único que viaja en las URLs; nunca una ruta.
+- **`server.py`** — todos los endpoints cuelgan de `/imagenes`:
+  - Carga: `POST /imagenes?nombre=...` recibe el TIFF como **cuerpo crudo** (no multipart) y lo escribe a disco por partes; luego valida que sea un GeoTIFF con CRS y lo convierte a COG con el driver de GDAL si no lo es ya. La conversión es síncrona dentro de la petición. `GET /imagenes` lista las ya subidas.
+  - Visualización: `/imagenes/{id}/tiles/{z}/{x}/{y}.png` y `/imagenes/{id}/metadata` usan `rio-tiler` para servir teselas XYZ directamente desde el COG; Leaflet las consume como `tileLayer`.
+  - Análisis: `/imagenes/{id}/analizar-stream` (SSE) y `/imagenes/{id}/analizar` (POST, fallback que solo devuelve el último bloque) consumen el generador de `predict.py`.
+- **`predict.py`** — `ejecutar_inspeccion_segmentada` es un **generador**: divide las celdas en ~10 segmentos y hace `yield` de un chunk por segmento (progreso + detecciones nuevas). El servidor serializa cada chunk como evento SSE. En el `finally` siempre escribe el JSON de detecciones (`ruta_json`; el servidor usa `detecciones.json` en la carpeta de la imagen) con lo acumulado, incluso si se interrumpe.
 - **`geo.py`** — `GeoHandler` abre el TIFF con `rasterio` y lo recorre en una grilla de celdas de 640 px (tamaño de entrada de YOLO) leyendo por ventanas, sin cargar el raster completo. `obtener_lista_cuadrantes` permite limitar el análisis a uno de 4 cuadrantes (1=NO, 2=NE, 3=SO, 4=SE; otro valor = todo). `leer_tile_filtrado` devuelve `None` para celdas casi negras o sin textura, que así nunca llegan al modelo.
 - **`detector.py`** — `FieldDetector` corre inferencia por lote sobre las celdas de un segmento y traduce las cajas a píxeles globales del ortomosaico sumando el offset de la celda.
-- **`front/index.html`** — archivo único con JS inline; `API_BASE` apunta a `http://localhost:8000` y el cuadrante (3) y `conf` (0.10) están fijos en la URL del `EventSource`.
+- **`front/index.html`** — archivo único con JS inline; `API_BASE` apunta a `http://localhost:8000` y `conf` (0.10) está fijo. La subida usa `XMLHttpRequest` (no `fetch`) para poder mostrar el avance.
 
 ### Detalles que no son evidentes
 
 - `gps_centro` de cada detección es el centro de la **celda de 640 px**, no el de la caja: todas las detecciones de una misma celda comparten coordenada y se superponen en el mapa. La posición precisa habría que derivarla de `box_global_px` con el transform del raster.
-- `geo.py` nombra `lon, lat` a lo que devuelve `rasterio.transform.xy`, que está en el CRS del TIFF. Solo son grados válidos para Leaflet si el raster está en EPSG:4326; con un CRS proyectado (UTM) hay que reproyectar.
+- `rasterio.transform.xy` devuelve coordenadas en el CRS del TIFF; `geo.py` las reproyecta a WGS84 cuando el raster no está en EPSG:4326 (p. ej. UTM).
 - `fila`/`col` en las celdas son índices locales al cuadrante elegido, no a la grilla completa.
-- CORS está abierto a `*` y `tif_path` es un query param que se abre sin validar: aceptable para el MVP local, no para exponerlo.
+- CORS está abierto a `*` y no hay usuarios ni borrado de imágenes: cualquiera que acceda ve y analiza todas las subidas.
+- Los archivos de `mvp/` usan fin de línea CRLF.
 
 ## Modelo y dataset
 
