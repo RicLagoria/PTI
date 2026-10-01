@@ -11,6 +11,7 @@
     button { background: #10b981; color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; }
     button:disabled { background: #64748b; cursor: not-allowed; }
     select, input[type="file"] { width: 100%; box-sizing: border-box; padding: 6px; border-radius: 6px; border: none; background: #f1f5f9; color: #0f172a; font-size: 13px; }
+    input[type="range"] { width: 100%; margin: 0; }
     label { display: block; margin-bottom: 6px; font-weight: bold; }
     .stat-box button { width: 100%; margin-top: 8px; }
     .stat-box p { margin: 8px 0 0 0; }
@@ -53,6 +54,11 @@
         <option value="4">Cuadrante 4 (sureste)</option>
       </select>
     </div>
+    <div class="stat-box">
+      <label for="rng-conf">Confianza mínima: <span id="lbl-conf">10%</span></label>
+      <input type="range" id="rng-conf" min="1" max="90" step="1" value="10"
+             oninput="document.getElementById('lbl-conf').innerText = `${this.value}%`" />
+    </div>
     <button id="btn-analizar" onclick="iniciarAnalisisEnVivo()" disabled>⚡ Analizar (En Vivo)</button>
   </div>
 
@@ -60,7 +66,8 @@
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    const API_BASE = "http://localhost:8000";
+    // Detrás de nginx (Docker) la API se sirve en /api; abriendo el archivo directo, en el puerto del backend
+    const API_BASE = location.protocol === "file:" ? "http://localhost:8000" : "/api";
     let map = L.map('map');
     let capaDetecciones = L.layerGroup().addTo(map);
     let totalDetecciones = 0;
@@ -122,6 +129,8 @@
           capaTeselas = L.tileLayer(`${API_BASE}/imagenes/${id}/tiles/{z}/{x}/{y}.png`, {
             minZoom: meta.minzoom,
             maxZoom: meta.maxzoom,
+            // Sin esto Leaflet pide teselas de toda la pantalla y las de fuera de la imagen dan 404
+            bounds: meta.bounds,
             attribution: 'Ortomosaico Local'
           }).addTo(map);
           imagenActual = id;
@@ -196,7 +205,9 @@
 
       // Abrir conexión Server-Sent Events (SSE)
       const cuadrante = document.getElementById("sel-cuadrante").value;
-      const params = new URLSearchParams({ conf: "0.10" });
+      // El modelo descarta las detecciones por debajo de esta confianza
+      const conf = (document.getElementById("rng-conf").value / 100).toFixed(2);
+      const params = new URLSearchParams({ conf });
       if (cuadrante) params.set("cuadrante", cuadrante);
       eventSource = new EventSource(`${API_BASE}/imagenes/${imagenActual}/analizar-stream?${params}`);
 
