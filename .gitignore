@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Ortomosaicos e imágenes subidas (archivos pesados, no van al repo)
+img/
+mvp/back/data/

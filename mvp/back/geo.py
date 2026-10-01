@@ -2,7 +2,11 @@ import math
 import cv2
 import numpy as np
 import rasterio
+from rasterio.crs import CRS
+from rasterio.warp import transform as transformar_coordenadas
 from rasterio.windows import Window
+
+CRS_WGS84 = CRS.from_epsg(4326)
 
 class GeoHandler:
     def __init__(self, ruta_tif, tamano_tile=640):
@@ -48,6 +52,19 @@ class GeoHandler:
                     "lat": lat,
                     "lon": lon
                 })
+
+        # El transform entrega coordenadas en el CRS del raster (p. ej. metros UTM);
+        # el visor necesita grados WGS84
+        if lista_celdas and self.src.crs != CRS_WGS84:
+            lons, lats = transformar_coordenadas(
+                self.src.crs, CRS_WGS84,
+                [c["lon"] for c in lista_celdas],
+                [c["lat"] for c in lista_celdas]
+            )
+            for celda, lon, lat in zip(lista_celdas, lons, lats):
+                celda["lon"] = lon
+                celda["lat"] = lat
+
         return lista_celdas
 
     def leer_tile_filtrado(self, x, y, ancho, alto, umbral_brillo=15, umbral_desviacion=8):
