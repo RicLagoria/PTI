@@ -18,8 +18,13 @@ Proyecto Tecnológico Integrador (2026): aplicación web que analiza ortomosaico
 Python 3.9.13. No hay tests, linter ni build configurados.
 
 ```bash
-# Dependencias del MVP: listadas en "mvp/requerimientos .txt" (el nombre tiene un espacio).
-# No sirve con `pip install -r` tal cual: contiene la línea "Python 3.9.13".
+# Todo el MVP con Docker (front + back detrás de nginx): http://localhost:8080
+# Requiere los pesos en mvp/data/modelo/best.pt (copiarlos de "entrenar ia/runs/detect/train-2/weights/")
+cd mvp && docker compose up --build
+
+# Dependencias para correr el backend sin Docker
+# ("mvp/requerimientos .txt" es la lista original y no sirve con pip: contiene la línea "Python 3.9.13")
+pip install -r mvp/back/requirements.txt
 
 # Backend (FastAPI) — debe ejecutarse desde mvp/back, ver "Rutas relativas"
 cd mvp/back && uvicorn server:app --reload --port 8000
@@ -27,7 +32,7 @@ cd mvp/back && uvicorn server:app --reload --port 8000
 # Pipeline de detección sin servidor (escribe detecciones_campo.json; espera "El Azul_COG.tif" en el cwd)
 cd mvp/back && python predict.py
 
-# Frontend: HTML estático sin build; abrir mvp/front/index.html en el navegador
+# Frontend sin Docker: HTML estático sin build; abrir mvp/front/index.html en el navegador
 
 # Entrenamiento (desde la carpeta que contiene Dataset/ y yolov8n.pt)
 cd "entrenar ia" && python train.py
@@ -35,12 +40,13 @@ cd "entrenar ia" && python train.py
 
 El `requerimientos.txt` de la raíz corresponde al entorno de entrenamiento/etiquetado (labelme, labelme2yolo, etc.), no al servidor web.
 
-### Rutas relativas (requisito para ejecutar)
+### Rutas y variables de entorno
 
-El backend resuelve todo contra el directorio de trabajo:
+Sin Docker, el backend resuelve todo contra el directorio de trabajo; `docker-compose.yml` apunta las tres variables al volumen `mvp/data/` (ignorado por git, montado en `/data`).
 
-- Pesos: `runs/detect/train-2/weights/best.pt` (hardcodeado en `detector.py` y `predict.py`). Los pesos reales están en `entrenar ia/runs/detect/train-2/weights/`; hay que copiarlos/enlazarlos dentro de `mvp/back/`.
-- Imágenes subidas: `data/imagenes/` (variable `UPLOAD_DIR`), ignorado por git. El tope de subida es `MAX_UPLOAD_MB` (8192 por defecto).
+- `MODEL_PATH`: pesos de YOLO. Por defecto `runs/detect/train-2/weights/best.pt`, que no existe en `mvp/back/`; los pesos reales están en `entrenar ia/runs/detect/train-2/weights/`.
+- `UPLOAD_DIR`: imágenes subidas. Por defecto `data/imagenes/`.
+- `MAX_UPLOAD_MB`: tope de subida (8192 por defecto).
 
 Hay un ortomosaico de prueba en `img/ortomosaico/El Azul_COG.tif` (1,3 GB, EPSG:4326, ignorado por git).
 
@@ -56,7 +62,7 @@ Flujo: `front/index.html` (Leaflet) ⇄ `back/server.py` (FastAPI) → `predict.
 - **`predict.py`** — `ejecutar_inspeccion_segmentada` es un **generador**: divide las celdas en ~10 segmentos y hace `yield` de un chunk por segmento (progreso + detecciones nuevas). El servidor serializa cada chunk como evento SSE. En el `finally` siempre escribe el JSON de detecciones (`ruta_json`; el servidor usa `detecciones.json` en la carpeta de la imagen) con lo acumulado, incluso si se interrumpe.
 - **`geo.py`** — `GeoHandler` abre el TIFF con `rasterio` y lo recorre en una grilla de celdas de 640 px (tamaño de entrada de YOLO) leyendo por ventanas, sin cargar el raster completo. `obtener_lista_cuadrantes` permite limitar el análisis a uno de 4 cuadrantes (1=NO, 2=NE, 3=SO, 4=SE; otro valor = todo). `leer_tile_filtrado` devuelve `None` para celdas casi negras o sin textura, que así nunca llegan al modelo.
 - **`detector.py`** — `FieldDetector` corre inferencia por lote sobre las celdas de un segmento y traduce las cajas a píxeles globales del ortomosaico sumando el offset de la celda.
-- **`front/index.html`** — archivo único con JS inline; `API_BASE` apunta a `http://localhost:8000` y `conf` (0.10) está fijo. La subida usa `XMLHttpRequest` (no `fetch`) para poder mostrar el avance.
+- **`front/index.html`** — archivo único con JS inline; `API_BASE` es `/api` (nginx hace de proxy al backend) salvo que la página se abra como `file://`, donde usa `http://localhost:8000`. el umbral de confianza se elige con un control deslizante (10% por defecto). La subida usa `XMLHttpRequest` (no `fetch`) para poder mostrar el avance.
 
 ### Detalles que no son evidentes
 
@@ -64,7 +70,9 @@ Flujo: `front/index.html` (Leaflet) ⇄ `back/server.py` (FastAPI) → `predict.
 - `rasterio.transform.xy` devuelve coordenadas en el CRS del TIFF; `geo.py` las reproyecta a WGS84 cuando el raster no está en EPSG:4326 (p. ej. UTM).
 - `fila`/`col` en las celdas son índices locales al cuadrante elegido, no a la grilla completa.
 - CORS está abierto a `*` y no hay usuarios ni borrado de imágenes: cualquiera que acceda ve y analiza todas las subidas.
-- Los archivos de `mvp/` usan fin de línea CRLF.
+- Los `.py` y el `index.html` de `mvp/` usan fin de línea CRLF; los archivos de Docker y nginx, LF.
+- En `front/nginx.conf`, `proxy_buffering off` es lo que permite que el SSE llegue bloque a bloque, y `proxy_request_buffering off` evita que nginx copie a disco cada subida antes de pasarla.
+- `back/Dockerfile` instala `torch`/`torchvision` en su variante `+cpu`; sin eso la imagen suma varios GB de librerías CUDA.
 
 ## Modelo y dataset
 

@@ -10,7 +10,7 @@ def ejecutar_inspeccion_segmentada(ruta_tif, cuadrante=3, ruta_json="detecciones
     las nuevas detecciones del bloque para que la API las envíe al front.
     """
     geo = GeoHandler(ruta_tif, tamano_tile=640)
-    detector = FieldDetector(model_path="runs/detect/train-2/weights/best.pt", conf_threshold=conf)
+    detector = FieldDetector(conf_threshold=conf)
     
     celdas = geo.obtener_lista_cuadrantes(cuadrante=cuadrante)
     total_celdas = len(celdas)

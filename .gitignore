@@ -220,3 +220,4 @@ __marimo__/
 # Ortomosaicos e imágenes subidas (archivos pesados, no van al repo)
 img/
 mvp/back/data/
+mvp/data/

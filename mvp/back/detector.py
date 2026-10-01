@@ -1,7 +1,11 @@
+import os
+
 from ultralytics import YOLO
 
+MODEL_PATH = os.environ.get("MODEL_PATH", "runs/detect/train-2/weights/best.pt")
+
 class FieldDetector:
-    def __init__(self, model_path="runs/detect/train-2/weights/best.pt", conf_threshold=0.15):
+    def __init__(self, model_path=MODEL_PATH, conf_threshold=0.15):
         self.model = YOLO(model_path)
         self.conf = conf_threshold
 

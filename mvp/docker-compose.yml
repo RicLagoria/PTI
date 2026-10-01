@@ -1,0 +1,20 @@
+services:
+  back:
+    build: ./back
+    # Mismo usuario que el host para que los archivos de ./data no queden como root
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      MODEL_PATH: /data/modelo/best.pt
+      UPLOAD_DIR: /data/imagenes
+      MAX_UPLOAD_MB: 8192
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+
+  front:
+    build: ./front
+    ports:
+      - "8080:80"
+    depends_on:
+      - back
+    restart: unless-stopped
