@@ -18,20 +18,61 @@ body {
 
 /* ===== Mapa de ortomosaicos (FieldView) ===== */
 
-/* Cada detección aparece con un pequeño "pop" en vez de materializarse de golpe */
-.deteccion-marker {
+/* Marcador de detección: núcleo sólido + halo tipo radar en loop.
+   --color y --nucleo los fija iconoDeteccion() en FieldView.tsx según
+   la clase y la confianza de cada detección. */
+.marcador-deteccion {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.marcador-nucleo,
+.marcador-halo {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: var(--nucleo);
+  height: var(--nucleo);
+  border-radius: 9999px;
+  background: var(--color);
+}
+
+.marcador-nucleo {
+  transform: translate(-50%, -50%);
+  border: 2px solid white;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
   animation: deteccion-pop 0.35s ease-out;
-  transform-origin: center;
+}
+
+.marcador-halo {
+  opacity: 0.55;
+  animation: marcador-halo 1.8s ease-out infinite;
 }
 
 @keyframes deteccion-pop {
   from {
     opacity: 0;
-    transform: scale(0.3);
+    transform: translate(-50%, -50%) scale(0.3);
   }
   to {
     opacity: 1;
-    transform: scale(1);
+    transform: translate(-50%, -50%) scale(1);
+  }
+}
+
+@keyframes marcador-halo {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.55;
+  }
+  75% {
+    transform: translate(-50%, -50%) scale(2.6);
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
   }
 }
 

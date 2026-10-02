@@ -4,7 +4,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Card, CardBody, Chip, Button } from "@heroui/react";
 import { Camera, MapPin, UploadCloud, Radar } from "lucide-react";
-import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import L from "leaflet";
 import type { LatLngBoundsExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { motion, AnimatePresence } from "framer-motion";
@@ -20,6 +21,7 @@ import {
 } from "../../services/ImagenesService";
 
 const PALETA_CLASES = ["#34d399", "#60a5fa", "#f472b6", "#fbbf24", "#a78bfa", "#f87171", "#22d3ee", "#fb923c"];
+const ALTO_MAX_MAPA = 560;
 
 function colorDeClase(clase: string): string {
   let hash = 0;
@@ -50,9 +52,7 @@ function posicionDeDeteccion(d: Deteccion, meta: ImagenMeta | null): { lat: numb
 }
 
 /** Relación de aspecto (ancho/alto) de los bounds geográficos, corregida por
- * latitud (a mayor latitud, un grado de longitud mide menos en el terreno).
- * Sirve para que el contenedor del mapa tenga la misma forma que la imagen
- * en vez de un alto fijo con mucho espacio vacío alrededor. */
+ * latitud (a mayor latitud, un grado de longitud mide menos en el terreno). */
 function aspectoDeImagen(meta: ImagenMeta | null): number {
   if (!meta) return 16 / 9;
   const [[sur, oeste], [norte, este]] = meta.bounds;
@@ -64,17 +64,30 @@ function aspectoDeImagen(meta: ImagenMeta | null): number {
   return Math.min(Math.max(relacion, 0.6), 2.4);
 }
 
+/** Ícono custom con un pulso tipo radar — nada de los círculos lisos de antes. */
+function iconoDeteccion(clase: string, confianza: number): L.DivIcon {
+  const color = colorDeClase(clase);
+  const nucleo = Math.round(10 + (Math.min(Math.max(confianza, 0), 100) / 100) * 8); // 10-18px
+  const total = nucleo + 20;
+  return L.divIcon({
+    className: "",
+    html: `<span class="marcador-deteccion" style="--color:${color};--nucleo:${nucleo}px">
+      <span class="marcador-halo"></span>
+      <span class="marcador-nucleo"></span>
+    </span>`,
+    iconSize: [total, total],
+    iconAnchor: [total / 2, total / 2],
+  });
+}
+
 /**
  * Centra y ajusta el zoom al contenedor. No alcanza con hacerlo una sola vez
- * al montar: el contenedor usa aspect-ratio dinámico (depende del ancho, que
- * puede no estar resuelto todavía en el primer render) y además puede
- * cambiar de tamaño después (fuente que termina de cargar, resize de
- * ventana, el grid que pasa a una columna en pantallas chicas). Si eso pasa
- * y solo invalidamos el tamaño sin volver a encuadrar, el mapa queda con el
- * zoom de cuando el contenedor era de otro tamaño: mismo síntoma (hueco
- * vacío al costado) pero por timing, no siempre reproducible. Por eso acá
- * siempre van juntos: cada vez que el tamaño del contenedor cambia, se
- * invalida Y se vuelve a hacer fitBounds.
+ * al montar: el contenedor puede no tener su tamaño final resuelto todavía
+ * en ese momento (fuentes, breakpoints del grid) y además puede cambiar de
+ * tamaño después (resize de ventana). Si eso pasa y solo invalidamos el
+ * tamaño sin volver a encuadrar, el mapa queda con el zoom de cuando el
+ * contenedor era de otro tamaño. Por eso acá siempre van juntos: cada vez
+ * que el tamaño del contenedor cambia, se invalida Y se vuelve a encuadrar.
  */
 function AjustarVista({ bounds }: { bounds: LatLngBoundsExpression | null }) {
   const map = useMap();
@@ -235,7 +248,9 @@ export default function FieldView() {
     acc[d.clase] = (acc[d.clase] ?? 0) + 1;
     return acc;
   }, {});
-  const claseDominante = Object.entries(conteoPorClase).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const clasesOrdenadas = Object.entries(conteoPorClase).sort((a, b) => b[1] - a[1]);
+  const claseDominante = clasesOrdenadas[0]?.[0];
+  const aspecto = aspectoDeImagen(meta);
 
   return (
     <div className="space-y-8">
@@ -332,8 +347,13 @@ export default function FieldView() {
         <Card className="border border-slate-200 bg-white shadow-sm dark:bg-slate-800 dark:border-slate-700">
           <CardBody className="space-y-4">
             <div
-              className="relative w-full overflow-hidden rounded-3xl border border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-900"
-              style={{ aspectRatio: aspectoDeImagen(meta), maxHeight: 600, minHeight: 320 }}
+              className="relative mx-auto w-full overflow-hidden rounded-3xl border border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-900"
+              style={{
+                aspectRatio: aspecto,
+                maxWidth: `${Math.round(ALTO_MAX_MAPA * aspecto)}px`,
+                maxHeight: ALTO_MAX_MAPA,
+                minHeight: 240,
+              }}
             >
               {!imagenId && !cargandoLista ? (
                 <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-slate-500 dark:text-slate-400">
@@ -348,55 +368,74 @@ export default function FieldView() {
                   </div>
                 </div>
               ) : (
-                <MapContainer
-                  key={imagenId}
-                  className="h-full w-full"
-                  center={[-27.08, -65.32]}
-                  zoom={13}
-                  minZoom={meta?.minzoom}
-                  maxZoom={meta ? meta.maxzoom + 3 : undefined}
-                  scrollWheelZoom
-                >
-                  {meta && <AjustarVista bounds={meta.bounds} />}
-                  {meta && (
-                    // maxNativeZoom + maxZoom extendido: si el rango de zoom del COG es más
-                    // angosto que lo que hace falta para llenar el contenedor (imagen chica
-                    // respecto a sus bounds), Leaflet reescala el último nivel en vez de
-                    // quedarse con un hueco gris alrededor.
-                    <TileLayer
-                      url={urlTeselas(imagenId!)}
-                      minZoom={meta.minzoom}
-                      maxZoom={meta.maxzoom + 3}
-                      maxNativeZoom={meta.maxzoom}
-                      attribution="Ortomosaico"
-                    />
-                  )}
-                  {detecciones.map((d, i) => {
-                    const pos = posicionDeDeteccion(d, meta);
-                    return (
-                      <CircleMarker
-                        key={`${d.fila}-${d.col}-${i}`}
-                        center={[pos.lat, pos.lon]}
-                        radius={5 + Math.min(d.confianza / 20, 4)}
-                        color={colorDeClase(d.clase)}
-                        fillColor={colorDeClase(d.clase)}
-                        fillOpacity={0.85}
-                        weight={2}
-                        className="deteccion-marker"
-                      >
-                        <Popup>
-                          <div className="space-y-1 text-sm">
-                            <p className="font-semibold capitalize">{d.clase}</p>
-                            <p>Confianza: {d.confianza.toFixed(1)}%</p>
-                            <p className="text-slate-500 dark:text-slate-400">
-                              {pos.lat.toFixed(5)}, {pos.lon.toFixed(5)}
-                            </p>
+                <>
+                  <MapContainer
+                    key={imagenId}
+                    className="h-full w-full"
+                    center={[-27.08, -65.32]}
+                    zoom={13}
+                    minZoom={meta?.minzoom}
+                    maxZoom={meta ? meta.maxzoom + 3 : undefined}
+                    scrollWheelZoom
+                  >
+                    {meta && <AjustarVista bounds={meta.bounds} />}
+                    {meta && (
+                      // maxNativeZoom + maxZoom extendido: si el rango de zoom del COG es más
+                      // angosto que lo que hace falta para llenar el contenedor (imagen chica
+                      // respecto a sus bounds), Leaflet reescala el último nivel en vez de
+                      // quedarse con un hueco gris alrededor.
+                      <TileLayer
+                        url={urlTeselas(imagenId!)}
+                        minZoom={meta.minzoom}
+                        maxZoom={meta.maxzoom + 3}
+                        maxNativeZoom={meta.maxzoom}
+                        attribution="Ortomosaico"
+                      />
+                    )}
+                    {detecciones.map((d, i) => {
+                      const pos = posicionDeDeteccion(d, meta);
+                      return (
+                        <Marker key={`${d.fila}-${d.col}-${i}`} position={[pos.lat, pos.lon]} icon={iconoDeteccion(d.clase, d.confianza)}>
+                          <Popup>
+                            <div className="w-44 space-y-2 py-0.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="flex items-center gap-1.5 text-sm font-semibold capitalize">
+                                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colorDeClase(d.clase) }} />
+                                  {d.clase}
+                                </span>
+                                <span className="shrink-0 text-xs font-medium text-slate-400">{d.confianza.toFixed(0)}%</span>
+                              </div>
+                              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-600">
+                                <div
+                                  className="h-full rounded-full"
+                                  style={{ width: `${d.confianza}%`, background: colorDeClase(d.clase) }}
+                                />
+                              </div>
+                              <p className="font-mono text-[11px] text-slate-400">
+                                {pos.lat.toFixed(5)}, {pos.lon.toFixed(5)}
+                              </p>
+                            </div>
+                          </Popup>
+                        </Marker>
+                      );
+                    })}
+                  </MapContainer>
+
+                  {clasesOrdenadas.length > 0 && (
+                    <div className="pointer-events-none absolute bottom-3 right-3 z-[1000] max-w-[10.5rem] rounded-xl bg-white/90 p-3 text-xs shadow-lg backdrop-blur-sm dark:bg-slate-800/90">
+                      <p className="mb-1.5 font-semibold text-slate-700 dark:text-slate-200">Detecciones</p>
+                      <div className="space-y-1">
+                        {clasesOrdenadas.map(([clase, cantidad]) => (
+                          <div key={clase} className="flex items-center gap-2">
+                            <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: colorDeClase(clase) }} />
+                            <span className="truncate capitalize text-slate-600 dark:text-slate-300">{clase}</span>
+                            <span className="ml-auto shrink-0 font-medium text-slate-400">{cantidad}</span>
                           </div>
-                        </Popup>
-                      </CircleMarker>
-                    );
-                  })}
-                </MapContainer>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -500,28 +539,51 @@ export default function FieldView() {
               )}
             </AnimatePresence>
 
-            <div className="space-y-3 text-slate-600 dark:text-slate-400">
-              <p className="text-sm uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Resultados</p>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-sm uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Resultados</p>
+                {detecciones.length > 0 && (
+                  <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{detecciones.length} en total</span>
+                )}
+              </div>
+
               {detecciones.length === 0 ? (
-                <p className="text-sm">Todavía no corriste un análisis sobre este ortomosaico.</p>
+                <p className="text-sm text-slate-600 dark:text-slate-400">Todavía no corriste un análisis sobre este ortomosaico.</p>
               ) : (
-                <>
-                  <p>
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">Total detectado:</span>{" "}
-                    {detecciones.length}
-                  </p>
-                  <p>
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">Clase más frecuente:</span>{" "}
-                    {claseDominante}
-                  </p>
-                  <div className="flex flex-wrap gap-2 pt-1">
-                    {Object.entries(conteoPorClase).map(([clase, cantidad]) => (
-                      <Chip key={clase} size="sm" style={{ backgroundColor: `${colorDeClase(clase)}26`, color: colorDeClase(clase) }}>
-                        {clase}: {cantidad}
-                      </Chip>
-                    ))}
-                  </div>
-                </>
+                <div className="space-y-3">
+                  {claseDominante && (
+                    <p className="text-sm text-slate-600 dark:text-slate-400">
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">Más frecuente:</span>{" "}
+                      <span className="capitalize">{claseDominante}</span>
+                    </p>
+                  )}
+                  {clasesOrdenadas.map(([clase, cantidad]) => {
+                    const pct = (cantidad / detecciones.length) * 100;
+                    const color = colorDeClase(clase);
+                    return (
+                      <div key={clase} className="space-y-1">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="flex items-center gap-2 capitalize text-slate-700 dark:text-slate-200">
+                            <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} />
+                            {clase}
+                          </span>
+                          <span className="text-xs text-slate-400">
+                            {cantidad} · {pct.toFixed(0)}%
+                          </span>
+                        </div>
+                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-600">
+                          <motion.div
+                            className="h-full rounded-full"
+                            style={{ background: color }}
+                            initial={{ width: 0 }}
+                            animate={{ width: `${pct}%` }}
+                            transition={{ duration: 0.5, ease: "easeOut" }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </CardBody>
