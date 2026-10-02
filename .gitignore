@@ -218,6 +218,10 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Ortomosaicos e imágenes subidas (archivos pesados, no van al repo)
-img/
+/img/
 mvp/back/data/
 mvp/data/
+
+# Front React (Node/Vite)
+mvp/front-react/node_modules/
+mvp/front-react/dist/

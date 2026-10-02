@@ -1,0 +1,56 @@
+@import "tailwindcss";
+@plugin "./hero.ts";
+@source "../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}";
+
+
+body {
+  @apply bg-gray-50 text-gray-900;
+}
+
+.dark body {
+  @apply bg-gray-900 text-gray-100;
+}
+
+/* ===== Mapa de ortomosaicos (FieldView) ===== */
+
+/* Cada detección aparece con un pequeño "pop" en vez de materializarse de golpe */
+.deteccion-marker {
+  animation: deteccion-pop 0.35s ease-out;
+  transform-origin: center;
+}
+
+@keyframes deteccion-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.3);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Reskin del popup de Leaflet para que combine con las cards de la app */
+.leaflet-popup-content-wrapper {
+  border-radius: 1rem;
+  background: var(--color-content1, #fff);
+  color: inherit;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
+}
+
+.dark .leaflet-popup-content-wrapper {
+  background: #1e293b;
+  color: #f1f5f9;
+}
+
+.leaflet-popup-tip {
+  background: var(--color-content1, #fff);
+}
+
+.dark .leaflet-popup-tip {
+  background: #1e293b;
+}
+
+.leaflet-popup-content {
+  margin: 0.75rem 1rem;
+}
