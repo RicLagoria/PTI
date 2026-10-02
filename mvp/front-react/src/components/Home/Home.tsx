@@ -2,16 +2,7 @@
 // src/components/Home/Home.tsx
 // =====================================
 import { Link, Outlet, useLocation } from "react-router-dom";
-import {
-  Navbar,
-  NavbarBrand,
-  NavbarContent,
-  NavbarItem,
-  Button,
-  Card,
-  CardBody,
-  Chip,
-} from "@heroui/react";
+import { Navbar, NavbarBrand, NavbarContent, NavbarItem, Button } from "@heroui/react";
 import { motion } from "framer-motion";
 import { Leaf, Image, LayoutGrid, Settings2 } from "lucide-react";
 
@@ -55,17 +46,21 @@ export default function Home() {
             const isActive = location.pathname === tab.path;
             return (
               <NavbarItem key={tab.id}>
-                <Button
-                  as={Link}
+                {/* Link de Tailwind plano a propósito: el Button de HeroUI usado
+                    como Link se queda con el aro de foco/presión pegado cuando el
+                    click dispara una navegación de react-router a mitad de gesto
+                    (varios tabs quedan "presionados" al mismo tiempo). */}
+                <Link
                   to={tab.path}
-                  size="sm"
-                  variant={isActive ? "solid" : "ghost"}
-                  color={isActive ? "primary" : "secondary"}
-                  className="capitalize dark:bg-slate-700 dark:text-slate-200 dark:hover:bg-slate-600"
+                  className={`flex items-center gap-2 rounded-xl px-3 py-1.5 text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-blue-600 text-white dark:bg-blue-700"
+                      : "bg-transparent text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-700"
+                  }`}
                 >
-                  <Icon className="mr-2 h-4 w-4" />
+                  <Icon className="h-4 w-4" />
                   {tab.label}
-                </Button>
+                </Link>
               </NavbarItem>
             );
           })}
@@ -97,21 +92,6 @@ export default function Home() {
               <p className="text-lg font-semibold">07 de mayo, 2026</p>
             </div>
           </div>
-
-          <Card className="border border-slate-200 bg-white shadow-sm dark:bg-slate-800 dark:border-slate-700">
-            <CardBody className="grid gap-4 md:grid-cols-[260px_1fr] md:items-center">
-              <div className="rounded-3xl bg-slate-50 p-4 dark:bg-slate-700">
-                <p className="text-sm uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Usuario</p>
-                <p className="mt-2 text-xl font-semibold">{username ?? "admin"}</p>
-              </div>
-              <div className="flex flex-wrap items-center gap-3 text-slate-600 dark:text-slate-400">
-                <span>Estas viendo la seccion:</span>
-                <Chip color="secondary" size="sm" className="dark:bg-slate-600 dark:text-slate-200">
-                  {activeTab.label}
-                </Chip>
-              </div>
-            </CardBody>
-          </Card>
 
           <Outlet />
         </motion.div>

@@ -64,25 +64,32 @@ function aspectoDeImagen(meta: ImagenMeta | null): number {
   return Math.min(Math.max(relacion, 0.6), 2.4);
 }
 
+/**
+ * Centra y ajusta el zoom al contenedor. No alcanza con hacerlo una sola vez
+ * al montar: el contenedor usa aspect-ratio dinámico (depende del ancho, que
+ * puede no estar resuelto todavía en el primer render) y además puede
+ * cambiar de tamaño después (fuente que termina de cargar, resize de
+ * ventana, el grid que pasa a una columna en pantallas chicas). Si eso pasa
+ * y solo invalidamos el tamaño sin volver a encuadrar, el mapa queda con el
+ * zoom de cuando el contenedor era de otro tamaño: mismo síntoma (hueco
+ * vacío al costado) pero por timing, no siempre reproducible. Por eso acá
+ * siempre van juntos: cada vez que el tamaño del contenedor cambia, se
+ * invalida Y se vuelve a hacer fitBounds.
+ */
 function AjustarVista({ bounds }: { bounds: LatLngBoundsExpression | null }) {
   const map = useMap();
   useEffect(() => {
-    if (bounds) map.fitBounds(bounds);
-  }, [bounds, map]);
-  return null;
-}
-
-/** Leaflet no se entera solo si el contenedor cambia de tamaño (por el
- * aspect-ratio dinámico o por resize de la ventana); sin esto el mapa queda
- * descentrado o con teselas a medio cargar al cambiar el layout. */
-function ObservarTamano() {
-  const map = useMap();
-  useEffect(() => {
+    if (!bounds) return;
     const contenedor = map.getContainer();
-    const observer = new ResizeObserver(() => map.invalidateSize());
+    const encuadrar = () => {
+      map.invalidateSize();
+      map.fitBounds(bounds);
+    };
+    encuadrar();
+    const observer = new ResizeObserver(encuadrar);
     observer.observe(contenedor);
     return () => observer.disconnect();
-  }, [map]);
+  }, [bounds, map]);
   return null;
 }
 
@@ -351,7 +358,6 @@ export default function FieldView() {
                   scrollWheelZoom
                 >
                   {meta && <AjustarVista bounds={meta.bounds} />}
-                  <ObservarTamano />
                   {meta && (
                     // maxNativeZoom + maxZoom extendido: si el rango de zoom del COG es más
                     // angosto que lo que hace falta para llenar el contenedor (imagen chica
