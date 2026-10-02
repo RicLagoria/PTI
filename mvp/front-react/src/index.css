@@ -2,6 +2,11 @@
 @plugin "./hero.ts";
 @source "../node_modules/@heroui/theme/dist/**/*.{js,ts,jsx,tsx}";
 
+/* Tailwind v4 no trae esto por default: sin esta línea, las clases
+   dark:* solo reaccionan a prefers-color-scheme del SO y el switch de
+   tema (que agrega/saca la clase .dark vía next-themes) no hace nada. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 
 body {
   @apply bg-gray-50 text-gray-900;

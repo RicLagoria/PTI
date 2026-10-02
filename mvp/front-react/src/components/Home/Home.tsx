@@ -45,7 +45,7 @@ export default function Home() {
         <NavbarContent>
           <NavbarBrand>
             <Leaf className="w-6 h-6 text-emerald-600" />
-            <span className="ml-2 font-bold">WeedVision</span>
+            <span className="ml-2 font-bold">AgroVision</span>
           </NavbarBrand>
         </NavbarContent>
 

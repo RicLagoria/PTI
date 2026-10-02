@@ -27,12 +27,105 @@ function colorDeClase(clase: string): string {
   return PALETA_CLASES[Math.abs(hash) % PALETA_CLASES.length];
 }
 
+/**
+ * El backend ubica cada detección en el centro de la celda de 640px que la
+ * contiene (no el de su propia caja), así que varias detecciones de la
+ * misma celda comparten coordenada y se tapan entre sí en el mapa. Como sí
+ * tenemos la caja en píxeles de la imagen completa (box_global_px) y los
+ * bounds georreferenciados, reproyectamos nosotros el centro de esa caja
+ * asumiendo un raster north-up sin rotación (el caso normal en un
+ * ortomosaico). Da una posición mucho más precisa por detección.
+ */
+function pixelAGeo(xPx: number, yPx: number, meta: ImagenMeta): { lat: number; lon: number } {
+  const [[sur, oeste], [norte, este]] = meta.bounds;
+  const lon = oeste + (xPx / meta.ancho_px) * (este - oeste);
+  const lat = norte - (yPx / meta.alto_px) * (norte - sur);
+  return { lat, lon };
+}
+
+function posicionDeDeteccion(d: Deteccion, meta: ImagenMeta | null): { lat: number; lon: number } {
+  if (!meta || !d.box_global_px || d.box_global_px.length < 4) return d.gps_centro;
+  const [x1, y1, x2, y2] = d.box_global_px;
+  return pixelAGeo((x1 + x2) / 2, (y1 + y2) / 2, meta);
+}
+
+/** Relación de aspecto (ancho/alto) de los bounds geográficos, corregida por
+ * latitud (a mayor latitud, un grado de longitud mide menos en el terreno).
+ * Sirve para que el contenedor del mapa tenga la misma forma que la imagen
+ * en vez de un alto fijo con mucho espacio vacío alrededor. */
+function aspectoDeImagen(meta: ImagenMeta | null): number {
+  if (!meta) return 16 / 9;
+  const [[sur, oeste], [norte, este]] = meta.bounds;
+  const diffLat = norte - sur;
+  if (diffLat <= 0) return 16 / 9;
+  const diffLon = este - oeste;
+  const correccion = Math.cos(((norte + sur) / 2) * (Math.PI / 180));
+  const relacion = (diffLon * correccion) / diffLat;
+  return Math.min(Math.max(relacion, 0.6), 2.4);
+}
+
 function AjustarVista({ bounds }: { bounds: LatLngBoundsExpression | null }) {
   const map = useMap();
   useEffect(() => {
     if (bounds) map.fitBounds(bounds);
   }, [bounds, map]);
   return null;
+}
+
+/** Leaflet no se entera solo si el contenedor cambia de tamaño (por el
+ * aspect-ratio dinámico o por resize de la ventana); sin esto el mapa queda
+ * descentrado o con teselas a medio cargar al cambiar el layout. */
+function ObservarTamano() {
+  const map = useMap();
+  useEffect(() => {
+    const contenedor = map.getContainer();
+    const observer = new ResizeObserver(() => map.invalidateSize());
+    observer.observe(contenedor);
+    return () => observer.disconnect();
+  }, [map]);
+  return null;
+}
+
+/** Spinner doble, para los estados "cargando" sin porcentaje conocido. */
+function IndicadorCarga() {
+  return (
+    <div className="relative h-14 w-14">
+      <span className="absolute inset-0 animate-spin rounded-full border-4 border-emerald-200 border-t-emerald-500 [animation-duration:1s] dark:border-emerald-900 dark:border-t-emerald-400" />
+      <span className="absolute inset-2.5 animate-spin rounded-full border-[3px] border-transparent border-b-sky-400 [animation-direction:reverse] [animation-duration:0.7s] dark:border-b-sky-300" />
+    </div>
+  );
+}
+
+/** Anillo de progreso real (0-100), para cuando sí sabemos el porcentaje. */
+function AnilloProgreso({ progreso }: { progreso: number }) {
+  const tam = 64;
+  const grosor = 6;
+  const radio = (tam - grosor) / 2;
+  const circunferencia = 2 * Math.PI * radio;
+  const pct = Math.min(Math.max(progreso, 0), 100);
+  const offset = circunferencia - (pct / 100) * circunferencia;
+  return (
+    <div className="relative shrink-0" style={{ width: tam, height: tam }}>
+      <svg width={tam} height={tam} className="-rotate-90">
+        <circle cx={tam / 2} cy={tam / 2} r={radio} strokeWidth={grosor} fill="none" className="stroke-slate-200 dark:stroke-slate-600" />
+        <motion.circle
+          cx={tam / 2}
+          cy={tam / 2}
+          r={radio}
+          strokeWidth={grosor}
+          fill="none"
+          strokeLinecap="round"
+          className="stroke-emerald-500 dark:stroke-emerald-400"
+          strokeDasharray={circunferencia}
+          animate={{ strokeDashoffset: offset }}
+          transition={{ ease: "easeOut", duration: 0.35 }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex items-center justify-center text-sm font-semibold text-slate-700 dark:text-slate-100">
+        {Math.round(pct)}%
+      </div>
+    </div>
+  );
 }
 
 export default function FieldView() {
@@ -232,8 +325,8 @@ export default function FieldView() {
         <Card className="border border-slate-200 bg-white shadow-sm dark:bg-slate-800 dark:border-slate-700">
           <CardBody className="space-y-4">
             <div
-              className="relative overflow-hidden rounded-3xl border border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-900"
-              style={{ height: 460 }}
+              className="relative w-full overflow-hidden rounded-3xl border border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-900"
+              style={{ aspectRatio: aspectoDeImagen(meta), maxHeight: 600, minHeight: 320 }}
             >
               {!imagenId && !cargandoLista ? (
                 <div className="flex h-full flex-col items-center justify-center gap-2 text-center text-slate-500 dark:text-slate-400">
@@ -243,38 +336,60 @@ export default function FieldView() {
               ) : cargandoMapa || cargandoLista ? (
                 <div className="flex h-full items-center justify-center">
                   <div className="flex flex-col items-center gap-3 text-slate-500 dark:text-slate-400">
-                    <span className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-emerald-500 dark:border-slate-600 dark:border-t-emerald-400" />
+                    <IndicadorCarga />
                     <p className="text-sm">Cargando ortomosaico...</p>
                   </div>
                 </div>
               ) : (
-                <MapContainer key={imagenId} className="h-full w-full" center={[-27.08, -65.32]} zoom={13} scrollWheelZoom>
+                <MapContainer
+                  key={imagenId}
+                  className="h-full w-full"
+                  center={[-27.08, -65.32]}
+                  zoom={13}
+                  minZoom={meta?.minzoom}
+                  maxZoom={meta ? meta.maxzoom + 3 : undefined}
+                  scrollWheelZoom
+                >
                   {meta && <AjustarVista bounds={meta.bounds} />}
+                  <ObservarTamano />
                   {meta && (
-                    <TileLayer url={urlTeselas(imagenId!)} minZoom={meta.minzoom} maxZoom={meta.maxzoom} attribution="Ortomosaico" />
+                    // maxNativeZoom + maxZoom extendido: si el rango de zoom del COG es más
+                    // angosto que lo que hace falta para llenar el contenedor (imagen chica
+                    // respecto a sus bounds), Leaflet reescala el último nivel en vez de
+                    // quedarse con un hueco gris alrededor.
+                    <TileLayer
+                      url={urlTeselas(imagenId!)}
+                      minZoom={meta.minzoom}
+                      maxZoom={meta.maxzoom + 3}
+                      maxNativeZoom={meta.maxzoom}
+                      attribution="Ortomosaico"
+                    />
                   )}
-                  {detecciones.map((d, i) => (
-                    <CircleMarker
-                      key={`${d.fila}-${d.col}-${i}`}
-                      center={[d.gps_centro.lat, d.gps_centro.lon]}
-                      radius={5 + Math.min(d.confianza / 20, 4)}
-                      color={colorDeClase(d.clase)}
-                      fillColor={colorDeClase(d.clase)}
-                      fillOpacity={0.85}
-                      weight={2}
-                      className="deteccion-marker"
-                    >
-                      <Popup>
-                        <div className="space-y-1 text-sm">
-                          <p className="font-semibold capitalize">{d.clase}</p>
-                          <p>Confianza: {d.confianza.toFixed(1)}%</p>
-                          <p className="text-slate-500 dark:text-slate-400">
-                            {d.gps_centro.lat.toFixed(5)}, {d.gps_centro.lon.toFixed(5)}
-                          </p>
-                        </div>
-                      </Popup>
-                    </CircleMarker>
-                  ))}
+                  {detecciones.map((d, i) => {
+                    const pos = posicionDeDeteccion(d, meta);
+                    return (
+                      <CircleMarker
+                        key={`${d.fila}-${d.col}-${i}`}
+                        center={[pos.lat, pos.lon]}
+                        radius={5 + Math.min(d.confianza / 20, 4)}
+                        color={colorDeClase(d.clase)}
+                        fillColor={colorDeClase(d.clase)}
+                        fillOpacity={0.85}
+                        weight={2}
+                        className="deteccion-marker"
+                      >
+                        <Popup>
+                          <div className="space-y-1 text-sm">
+                            <p className="font-semibold capitalize">{d.clase}</p>
+                            <p>Confianza: {d.confianza.toFixed(1)}%</p>
+                            <p className="text-slate-500 dark:text-slate-400">
+                              {pos.lat.toFixed(5)}, {pos.lon.toFixed(5)}
+                            </p>
+                          </div>
+                        </Popup>
+                      </CircleMarker>
+                    );
+                  })}
                 </MapContainer>
               )}
             </div>
@@ -354,28 +469,26 @@ export default function FieldView() {
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: "auto" }}
                   exit={{ opacity: 0, height: 0 }}
-                  className="space-y-3 overflow-hidden rounded-2xl bg-slate-50 p-4 dark:bg-slate-700"
+                  className="flex items-center gap-4 overflow-hidden rounded-2xl bg-slate-50 p-4 dark:bg-slate-700"
                 >
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="font-medium text-slate-700 dark:text-slate-200">
+                  <AnilloProgreso progreso={progresoAnalisis?.progreso_pct ?? 0} />
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <span className="block font-medium text-slate-700 dark:text-slate-200">
                       {analizando ? "Procesando celdas..." : "Análisis completado"}
                     </span>
-                    <span className="text-slate-500 dark:text-slate-400">
-                      {(progresoAnalisis?.progreso_pct ?? 0).toFixed(0)}%
-                    </span>
-                  </div>
-                  <div className="h-2.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-600">
-                    <motion.div
-                      className="h-full rounded-full bg-emerald-500"
-                      animate={{ width: `${progresoAnalisis?.progreso_pct ?? 0}%` }}
-                      transition={{ ease: "easeOut", duration: 0.3 }}
-                    />
-                  </div>
-                  <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
-                    <span>
-                      Bloque {progresoAnalisis?.bloque ?? 0}/{progresoAnalisis?.total_bloques ?? "—"}
-                    </span>
-                    <span>{progresoAnalisis?.total_acumuladas ?? 0} detecciones acumuladas</span>
+                    <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-600">
+                      <motion.div
+                        className="h-full rounded-full bg-emerald-500"
+                        animate={{ width: `${progresoAnalisis?.progreso_pct ?? 0}%` }}
+                        transition={{ ease: "easeOut", duration: 0.3 }}
+                      />
+                    </div>
+                    <div className="flex justify-between text-xs text-slate-500 dark:text-slate-400">
+                      <span>
+                        Bloque {progresoAnalisis?.bloque ?? 0}/{progresoAnalisis?.total_bloques ?? "—"}
+                      </span>
+                      <span>{progresoAnalisis?.total_acumuladas ?? 0} detecciones acumuladas</span>
+                    </div>
                   </div>
                 </motion.div>
               )}
