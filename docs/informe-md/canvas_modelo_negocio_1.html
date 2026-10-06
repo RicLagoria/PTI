@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Modelo de Negocio (Canvas) — Detección de malezas en caña de azúcar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bitter:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#DDE1D6; --surface:#F4F5EE; --ink:#22201A; --ink-soft:#5C5A4E;
+    --rule:rgba(34,32,26,.16); --rule-strong:rgba(34,32,26,.34);
+    --f1:#42597A; --f2:#3F6B34; --f3:#2F6E6B; --f4:#B5771A; --f5:#9B4230; --mgmt:#6E6A5A;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;padding:28px 22px 48px;background:var(--paper);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:14px;line-height:1.45}
+  .sheet{max-width:1280px;margin:0 auto}
+
+  /* ---------- masthead: title + designed-for boxes, like the template header ---------- */
+  .masthead{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:16px 22px;margin-bottom:16px}
+  .masthead .title{max-width:52ch}
+  .eyebrow{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 8px}
+  .masthead h1{font-family:"Bitter",Georgia,serif;font-weight:700;font-size:clamp(22px,3vw,32px);line-height:1.12;letter-spacing:-.01em;margin:0}
+  .infobar{display:flex;flex-wrap:wrap;gap:8px}
+  .infobox{background:var(--surface);border:1px solid var(--rule-strong);padding:8px 14px;min-width:128px}
+  .infobox dt{font-family:"Bitter",Georgia,serif;font-style:italic;font-size:11.5px;color:var(--ink-soft);margin:0 0 2px}
+  .infobox dd{margin:0;font-size:12.6px;font-weight:500}
+
+  /* ---------- the canvas: one unified bordered grid, like the template ---------- */
+  .canvas{
+    border:3px solid var(--ink);
+    display:grid;
+    grid-template-columns:repeat(10,1fr);
+    grid-template-rows:1fr 1fr auto;
+    background:var(--ink);
+    gap:1px;
+  }
+  .blk{
+    background:var(--surface);
+    padding:16px 17px 14px;
+    display:flex;
+    flex-direction:column;
+    min-width:0;
+  }
+  .blk .hd{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
+  .blk h3{font-family:"Bitter",Georgia,serif;font-size:16px;font-weight:700;letter-spacing:-.003em;margin:0}
+  .blk .ico{flex:none;width:26px;height:26px;color:var(--ink)}
+  .blk .ico svg{width:100%;height:100%}
+  .blk .q{font-size:11px;line-height:1.45;color:var(--ink-soft);margin:0 0 10px}
+  .blk .grp{margin-top:auto;padding-top:8px}
+  .blk .grp + .grp{margin-top:8px;padding-top:8px;border-top:1px dotted var(--rule)}
+  .blk .grp p{font-family:"IBM Plex Mono",monospace;font-size:8.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 4px}
+  .blk .grp ul{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:2px}
+  .blk .grp li{font-size:10.6px;font-style:italic;color:var(--ink);line-height:1.35}
+  .blk .core-list{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:7px}
+  .blk .core-list li{font-size:12px;line-height:1.4;color:var(--ink);padding-left:12px;position:relative}
+  .blk .core-list li::before{content:"";position:absolute;left:0;top:.5em;width:5px;height:5px;border-radius:50%;background:var(--ink-soft)}
+
+  .kp{grid-column:1/3; grid-row:1/3}
+  .ka{grid-column:3/5; grid-row:1/2}
+  .kr{grid-column:3/5; grid-row:2/3}
+  .vp{grid-column:5/7; grid-row:1/3; background:#EBEEE2}
+  .vp h3{font-size:18px}
+  .cr{grid-column:7/9; grid-row:1/2}
+  .ch{grid-column:7/9; grid-row:2/3}
+  .cs{grid-column:9/11; grid-row:1/3}
+  .cost{grid-column:1/6; grid-row:3/4}
+  .rev{grid-column:6/11; grid-row:3/4}
+
+  .accent{width:16px;height:3px;display:block;margin-bottom:6px}
+  .kp .accent{background:var(--f1)} .ka .accent,.kr .accent{background:var(--f3)}
+  .vp .accent{background:var(--f2)} .cr .accent,.ch .accent{background:var(--f4)}
+  .cs .accent{background:var(--f5)}
+  .cost .accent,.rev .accent{background:var(--mgmt)}
+
+  @media (max-width:900px){
+    .canvas{grid-template-columns:1fr;grid-template-rows:none}
+    .kp,.ka,.kr,.vp,.cr,.ch,.cs,.cost,.rev{grid-column:1/2;grid-row:auto}
+  }
+
+  .foot{margin-top:16px;padding:14px 18px;background:var(--surface);border:1px solid var(--rule-strong)}
+  .foot h2{font-family:"Bitter",Georgia,serif;font-size:12.5px;font-weight:700;letter-spacing:.02em;margin:0 0 8px}
+  .note{margin:0;font-size:11.5px;line-height:1.55;color:var(--ink-soft);border-left:2px solid var(--rule-strong);padding-left:12px;max-width:100ch}
+
+  @media print{
+    body{background:#fff;padding:0}
+  }
+</style>
+</head>
+<body>
+<div class="sheet">
+
+  <div class="masthead">
+    <div class="title">
+      <p class="eyebrow">Proyecto Tecnológico Integrador · Ingeniería en Informática</p>
+      <h1>El Canvas de Modelo de Negocio</h1>
+    </div>
+    <div class="infobar">
+      <div class="infobox"><dt>Diseñado para</dt><dd>Detección de malezas en caña de azúcar — UBP</dd></div>
+      <div class="infobox"><dt>Diseñado por</dt><dd>Briguera · Juarez · Godoy Cabrera · Guerrero · Iriarte Chamorro · Lagoria</dd></div>
+      <div class="infobox"><dt>Fecha</dt><dd>Agosto 2026</dd></div>
+      <div class="infobox"><dt>Versión</dt><dd>1.0</dd></div>
+    </div>
+  </div>
+
+  <div class="canvas">
+
+    <div class="blk kp">
+      <div class="hd"><h3>Socios Clave</h3><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="12" r="4"/><circle cx="16" cy="12" r="4"/></svg></span></div>
+      <span class="accent"></span>
+      <ul class="core-list">
+        <li>INTA Famaillá — validación agronómica y ensayos de campo</li>
+        <li>EEAOC — relevamientos de malezas y datos históricos</li>
+        <li>UBP — cátedra e infraestructura académica</li>
+        <li>Ingenios azucareros de Tucumán</li>
+        <li>Productores piloto (2‑3 lotes de validación)</li>
+        <li>Proveedores locales de vuelo con drones</li>
+        <li>Comunidad open source (OpenDroneMap, Ultralytics)</li>
+      </ul>
+    </div>
+
+    <div class="blk ka">
+      <div class="hd"><h3>Actividades Clave</h3><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 12l4 4 10-10"/></svg></span></div>
+      <span class="accent"></span>
+      <ul class="core-list">
+        <li>Desarrollo del pipeline de visión artificial</li>
+        <li>Captura y etiquetado de datasets locales</li>
+        <li>Entrenamiento y validación de modelos</li>
+        <li>Diseño del motor de reglas junto al INTA</li>
+      </ul>
+    </div>
+
+    <div class="blk kr">
+      <div class="hd"><h3>Recursos Clave</h3><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="4" width="16" height="16" rx="1.5"/><path d="M4 10h16"/></svg></span></div>
+      <span class="accent"></span>
+      <ul class="core-list">
+        <li>Dataset local etiquetado (imágenes + máscaras)</li>
+        <li>Modelos entrenados (YOLOv8/v11, DeepLabV3+)</li>
+        <li>Infraestructura cloud (cómputo, PostGIS)</li>
+        <li>Conocimiento agronómico validado (INTA/EEAOC)</li>
+        <li>Equipo de 6 estudiantes de Ing. en Informática</li>
+      </ul>
+    </div>
+
+    <div class="blk vp">
+      <div class="hd"><h3>Propuesta de Valor</h3><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 3l2.4 5.8L20 10l-4.4 4 1.2 6.2L12 17l-4.8 3.2L8.4 14 4 10l5.6-1.2z"/></svg></span></div>
+      <span class="accent"></span>
+      <ul class="core-list">
+        <li>Reducción del 20‑35 % en consumo de herbicidas (tasa variable)</li>
+        <li>Detección temprana de malezas por especie</li>
+        <li>Estimación de rendimiento por parcela</li>
+        <li>Plataforma 100 % open source, infraestructura &lt; USD 200</li>
+        <li>Recomendaciones agronómicas trazables y validadas</li>
+      </ul>
+    </div>
+
+    <div class="blk cr">
+      <div class="hd"><h3>Relación con Clientes</h3><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 20s-7-4.35-7-9.5A4.5 4.5 0 0112 7a4.5 4.5 0 017 3.5C19 15.65 12 20 12 20z"/></svg></span></div>
+      <span class="accent"></span>
+      <ul class="core-list">
+        <li>Acompañamiento técnico directo en la etapa piloto</li>
+        <li>Capacitación a productores y técnicos</li>
+        <li>Dashboard de autoservicio para consulta de reportes</li>
+        <li>Soporte vía convenio institucional (INTA/EEAOC/UBP)</li>
+      </ul>
+    </div>
+
+    <div class="blk ch">
+      <div class="hd"><h3>Canales</h3><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.5" y="9" width="12" height="7" rx="1"/><path d="M14.5 11h3.5l3 3v2h-6.5z"/><circle cx="6.5" cy="18.5" r="1.6"/><circle cx="16.5" cy="18.5" r="1.6"/></svg></span></div>
+      <span class="accent"></span>
+      <ul class="core-list">
+        <li>Dashboard web geoespacial y API REST</li>
+        <li>Convenios institucionales con INTA y EEAOC</li>
+        <li>Difusión académica (publicaciones, defensa del PTI)</li>
+        <li>Repositorio público en GitHub</li>
+      </ul>
+    </div>
+
+    <div class="blk cs">
+      <div class="hd"><h3>Segmentos de Clientes</h3><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="9" cy="8" r="3"/><path d="M3 20c0-3.3 2.7-6 6-6s6 2.7 6 6"/><circle cx="17.5" cy="9.5" r="2.3"/><path d="M14.8 20c.2-2.6 1.9-4.8 4.2-4.8 2.6 0 4.5 2.2 4.5 5"/></svg></span></div>
+      <span class="accent"></span>
+      <ul class="core-list">
+        <li>Productores cañeros de Tucumán (pequeños y medianos)</li>
+        <li>Ingenios azucareros</li>
+        <li>Cooperativas agrícolas del NOA</li>
+        <li>Instituciones de investigación (INTA, EEAOC)</li>
+        <li>A futuro: limón, arándano, frutilla, tabaco, soja, garbanzo</li>
+      </ul>
+    </div>
+
+    <div class="blk cost">
+      <div class="hd"><h3>Estructura de Costos</h3><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M20 12a1 1 0 01-.3.7l-7 7a1 1 0 01-1.4 0l-7.3-7.3A1 1 0 014 11.7V5a1 1 0 011-1h6.7a1 1 0 01.7.3l7.3 7.3a1 1 0 01.3.7z"/><circle cx="8.3" cy="8.3" r="1.2"/></svg></span></div>
+      <span class="accent"></span>
+      <div class="grp">
+        <ul class="core-list">
+          <li>Infraestructura cloud (&lt; USD 200 durante el PTI)</li>
+          <li>Costo de vuelos de relevamiento con drones</li>
+          <li>Tiempo de desarrollo del equipo (recurso académico)</li>
+          <li>Sin costos de licenciamiento — stack 100 % open source</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="blk rev">
+      <div class="hd"><h3>Fuentes de Ingresos</h3><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 8a8 3 0 0016 0 8 3 0 00-16 0z"/><path d="M4 8v8a8 3 0 0016 0V8"/><path d="M4 12a8 3 0 0016 0"/></svg></span></div>
+      <span class="accent"></span>
+      <div class="grp">
+        <ul class="core-list">
+          <li>Durante el PTI: ninguna — proyecto académico sin fines de lucro</li>
+          <li>A futuro: servicios de soporte y capacitación</li>
+          <li>Convenios de transferencia tecnológica con INTA/EEAOC</li>
+          <li>Modelo freemium: dashboard básico gratis + reportes avanzados pagos</li>
+          <li>Licenciamiento de datasets etiquetados a terceros</li>
+        </ul>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="foot">
+    <h2>Lectura del modelo</h2>
+    <p class="note">El proyecto se mantiene en fase académica y sin fines de lucro durante el PTI: el bloque de ingresos queda deliberadamente vacío para ese período. El valor del canvas está en anticipar el camino hacia una iniciativa sostenible — spin‑off universitario, convenio de transferencia con INTA/EEAOC, o servicio a ingenios y cooperativas — una vez validado el sistema en campo.</p>
+  </div>
+
+</div>
+</body>
+</html>

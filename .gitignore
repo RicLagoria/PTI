@@ -221,3 +221,9 @@ __marimo__/
 img/
 mvp/back/data/
 mvp/data/
+# Datos y modelos (archivos grandes — no versionar)
+data/raw/
+ml/models/*.pt
+ml/models/*.onnx
+ml/models/*.engine
+*.weights

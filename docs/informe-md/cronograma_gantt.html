@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cronograma PTI — Detección de malezas en caña de azúcar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bitter:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --paper:#DDE1D6; --surface:#F4F5EE; --ink:#22201A; --ink-soft:#5C5A4E;
+    --rule:rgba(34,32,26,.16); --rule-strong:rgba(34,32,26,.34);
+    --f1:#42597A; --f2:#3F6B34; --f3:#2F6E6B; --f4:#B5771A; --f5:#9B4230; --mgmt:#6E6A5A;
+    --zafra:#B5771A; --vuelo:#3F6B34; --lluvia:#42597A;
+    --label-w:302px; --row-h:26px; --track-min:820px;
+  }
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{margin:0;padding:28px 22px 48px;background:var(--paper);color:var(--ink);font-family:"IBM Plex Sans",system-ui,sans-serif;font-size:14px;line-height:1.45}
+  .sheet{max-width:1180px;margin:0 auto;background:var(--surface);border:1px solid var(--rule-strong);box-shadow:0 1px 0 rgba(34,32,26,.06), 0 18px 44px -30px rgba(34,32,26,.5)}
+  .masthead{padding:24px 26px 20px;border-bottom:2px solid var(--ink)}
+  .eyebrow{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 9px}
+  .masthead h1{font-family:"Bitter",Georgia,serif;font-weight:700;font-size:clamp(20px,3vw,29px);line-height:1.14;letter-spacing:-.01em;margin:0 0 4px;max-width:30ch}
+  .masthead .sub{font-family:"Bitter",Georgia,serif;font-weight:500;font-size:15px;color:var(--ink-soft);margin:0 0 18px}
+  .meta{display:flex;flex-wrap:wrap;gap:0 34px;border-top:1px solid var(--rule);padding-top:14px}
+  .meta div{min-width:118px}
+  .meta dt{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 2px}
+  .meta dd{margin:0;font-size:13px;font-weight:500}
+  .bar{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:14px;padding:13px 26px;border-bottom:1px solid var(--rule);background:rgba(34,32,26,.028)}
+  .toggle{display:flex;border:1px solid var(--rule-strong);background:var(--surface)}
+  .toggle button{font:500 11.5px/1 "IBM Plex Sans",sans-serif;letter-spacing:.03em;padding:8px 15px;border:0;background:transparent;color:var(--ink-soft);cursor:pointer}
+  .toggle button + button{border-left:1px solid var(--rule)}
+  .toggle button[aria-pressed="true"]{background:var(--ink);color:var(--surface)}
+  .toggle button:focus-visible{outline:2px solid var(--f3);outline-offset:2px}
+  .legend{display:flex;flex-wrap:wrap;gap:6px 16px;align-items:center}
+  .legend span{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--ink-soft)}
+  .legend i{width:16px;height:9px;display:block;border-radius:1px}
+  .scroller{overflow-x:auto;overflow-y:visible}
+  .chart{min-width:calc(var(--label-w) + var(--track-min));position:relative}
+  .grid{display:grid;grid-template-columns:var(--label-w) 1fr;align-items:stretch}
+  .lab{border-right:2px solid var(--ink);padding:0 14px 0 22px;display:flex;align-items:center;background:var(--surface)}
+  .trk{position:relative}
+  .axis{border-bottom:1px solid var(--rule-strong)}
+  .axis .lab{border-bottom:1px solid var(--rule-strong);font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-soft);height:34px}
+  .axis .trk{border-bottom:1px solid var(--rule-strong);height:34px}
+  .mo{position:absolute;top:0;bottom:0;border-left:1px solid var(--rule);display:flex;align-items:center;justify-content:center}
+  .mo:first-child{border-left:0}
+  .mo b{font-family:"IBM Plex Mono",monospace;font-weight:500;font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink)}
+  .season{background:rgba(34,32,26,.035);border-bottom:2px solid var(--ink)}
+  .season .lab{border-bottom:2px solid var(--ink);background:rgba(34,32,26,.035);flex-direction:column;align-items:flex-start;justify-content:center;padding-top:9px;padding-bottom:9px;gap:1px}
+  .season .lab b{font-family:"Bitter",Georgia,serif;font-size:12px;font-weight:600;letter-spacing:.01em}
+  .season .lab em{font-style:normal;font-size:10.5px;color:var(--ink-soft);line-height:1.3}
+  .season .trk{border-bottom:2px solid var(--ink);padding:9px 0}
+  .srow{position:relative;height:19px;margin-bottom:4px}
+  .srow:last-child{margin-bottom:0}
+  .sbar{position:absolute;top:0;height:19px;display:flex;align-items:center;padding:0 8px;font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.05em;text-transform:uppercase;color:#fff;white-space:nowrap;overflow:hidden;border-radius:1px}
+  .sbar.ghost{color:var(--ink-soft);background:transparent;border:1px dashed var(--rule-strong)}
+  .wband{position:absolute;top:0;bottom:0;background:rgba(63,107,52,.062);pointer-events:none}
+  .ph .lab{border-bottom:1px solid var(--rule);background:rgba(34,32,26,.055);gap:10px;height:30px;padding-left:18px}
+  .ph .trk{border-bottom:1px solid var(--rule);background:rgba(34,32,26,.055);height:30px}
+  .ph .lab i{width:4px;height:15px;display:block;border-radius:1px}
+  .ph .lab b{font-family:"Bitter",Georgia,serif;font-size:12.5px;font-weight:700;letter-spacing:.005em}
+  .ph .lab code{font-family:"IBM Plex Mono",monospace;font-size:10px;color:var(--ink-soft);margin-left:auto;letter-spacing:.06em}
+  .tk .lab{height:var(--row-h);font-size:12.2px;color:var(--ink);padding-left:34px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block;line-height:var(--row-h)}
+  .tk .trk{height:var(--row-h)}
+  .tk:nth-child(even) .lab,.tk:nth-child(even) .trk{background:rgba(34,32,26,.022)}
+  .bar-t{position:absolute;top:5px;height:16px;border-radius:2px;opacity:.9}
+  .fill{position:absolute;left:0;top:0;bottom:0;background:rgba(255,255,255,.42);border-right:1.5px solid rgba(255,255,255,.85)}
+  .bar-t.mgmt{opacity:1;background:repeating-linear-gradient(115deg,var(--mgmt) 0 5px,rgba(110,106,90,.4) 5px 10px);height:11px;top:7px}
+  .ms{position:absolute;top:6px;width:14px;height:14px;transform:rotate(45deg) translateX(-50%);transform-origin:left center;border:2px solid var(--surface)}
+  .ms-lab{position:absolute;top:4px;font-family:"IBM Plex Mono",monospace;font-size:10px;font-weight:500;letter-spacing:.04em;white-space:nowrap;line-height:18px}
+  .today{position:absolute;top:0;bottom:0;width:0;border-left:1.5px dashed var(--f5);z-index:4;pointer-events:none}
+  .today-flag{position:absolute;top:0;transform:translateX(-50%);background:var(--f5);color:#fff;font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.07em;padding:2px 7px;white-space:nowrap;z-index:5}
+  body[data-view="plan"] .today,body[data-view="plan"] .today-flag,body[data-view="plan"] .fill{display:none}
+  .foot{padding:20px 26px 24px;border-top:2px solid var(--ink)}
+  .foot h2{font-family:"Bitter",Georgia,serif;font-size:13px;font-weight:700;letter-spacing:.02em;margin:0 0 12px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:1px;background:var(--rule-strong);border:1px solid var(--rule-strong)}
+  .card{background:var(--surface);padding:12px 14px}
+  .card dt{font-family:"IBM Plex Mono",monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft);margin:0 0 5px}
+  .card dd{margin:0;font-size:12.4px;line-height:1.4}
+  .card dd b{font-family:"Bitter",Georgia,serif;font-size:17px;display:block;margin-bottom:1px}
+  .note{margin:16px 0 0;font-size:11.5px;line-height:1.55;color:var(--ink-soft);border-left:2px solid var(--rule-strong);padding-left:12px;max-width:88ch}
+  @media (max-width:640px){body{padding:14px 10px 30px}:root{--label-w:184px}.tk .lab{padding-left:20px;font-size:11.4px}.masthead,.bar,.foot{padding-left:16px;padding-right:16px}}
+  @media print{body{background:#fff;padding:0}.sheet{box-shadow:none;border:0;max-width:none}.bar{display:none}.scroller{overflow:visible}.chart{min-width:0}}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header class="masthead">
+    <p class="eyebrow">Proyecto Tecnológico Integrador · Ingeniería en Informática</p>
+    <h1>Plataforma de detección de malezas en caña de azúcar</h1>
+    <p class="sub">Cronograma de ejecución · Ciclo lectivo marzo – diciembre 2026</p>
+    <dl class="meta">
+      <div><dt>Institución</dt><dd>Universidad Blas Pascal</dd></div>
+      <div><dt>Docente tutor</dt><dd>Gencarelli, Oscar Luis</dd></div>
+      <div><dt>Equipo</dt><dd>6 integrantes</dd></div>
+      <div><dt>Zona de aplicación</dt><dd>Tucumán, Argentina</dd></div>
+      <div><dt>Versión</dt><dd>1.0 · Mayo 2026</dd></div>
+    </dl>
+  </header>
+  <div class="bar">
+    <div class="toggle" role="group" aria-label="Modo de visualización">
+      <button id="btn-avance" aria-pressed="true">Avance real</button>
+      <button id="btn-plan" aria-pressed="false">Plan original</button>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--f1)"></i>F1 Diseño</span>
+      <span><i style="background:var(--f2)"></i>F2 Campo</span>
+      <span><i style="background:var(--f3)"></i>F3 Modelado</span>
+      <span><i style="background:var(--f4)"></i>F4 Integración</span>
+      <span><i style="background:var(--f5)"></i>F5 Cierre</span>
+      <span><i style="background:repeating-linear-gradient(115deg,var(--mgmt) 0 4px,rgba(110,106,90,.35) 4px 8px)"></i>Transversal</span>
+    </div>
+  </div>
+  <div class="scroller"><div class="chart" id="chart"></div></div>
+  <footer class="foot">
+    <h2>Estado al 11 de agosto de 2026</h2>
+    <dl class="cards" id="cards"></dl>
+    <p class="note" id="note"></p>
+  </footer>
+</div>
+<script>
+(function(){
+  const AX0 = new Date(2026,2,1);
+  const AX1 = new Date(2026,11,31);
+  const TODAY = new Date(2026,7,11);
+  const SPAN = AX1 - AX0;
+  const pct = d => ((d - AX0) / SPAN) * 100;
+  const D   = (m,day) => new Date(2026, m-1, day);
+  const MONTHS = ["Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
+  const SEASON = [
+    { row:0, label:"Lluvias estivales", color:"var(--lluvia)", segs:[[D(3,1),D(3,31)],[D(12,1),D(12,31)]] },
+    { row:1, label:"Zafra · cosecha y molienda", color:"var(--zafra)", segs:[[D(6,1),D(11,15)]] },
+    { row:2, label:"Ventana de vuelo viable", color:"var(--vuelo)", segs:[[D(3,1),D(5,20)],[D(9,20),D(12,15)]] }
+  ];
+  const PHASES = [
+    { id:"F1", name:"Fundación y diseño", color:"var(--f1)", range:"Mar – Abr", tasks:[
+      { n:"Relevamiento de requerimientos y estado del arte", s:D(3,2),  e:D(3,27),  p:100 },
+      { n:"Gestión de convenio con INTA Famaillá / EEAOC",    s:D(3,9),  e:D(5,15),  p:45  },
+      { n:"Diseño de arquitectura y modelo de datos",         s:D(3,16), e:D(4,17),  p:90  },
+      { n:"Entorno Docker Compose y CI/CD",                   s:D(3,23), e:D(4,24),  p:60  },
+      { n:"Dataset baseline con fuentes públicas (200 img)",  s:D(4,6),  e:D(4,30),  p:25  }
+    ], milestone:{ n:"H1 · Entorno reproducible y arquitectura aprobada", d:D(4,30) } },
+    { id:"F2", name:"Campaña de campo y pipeline base", color:"var(--f2)", range:"Abr – Jul", tasks:[
+      { n:"Planificación de vuelos y habilitación ANAC",      s:D(4,20), e:D(5,8),   p:15 },
+      { n:"Campaña de vuelo n.° 1 · 3 lotes piloto",          s:D(5,4),  e:D(5,22),  p:0  },
+      { n:"Procesamiento ODM y generación de ortomosaicos",   s:D(5,18), e:D(6,12),  p:0  },
+      { n:"Etiquetado en CVAT · 500 img, 4 especies",         s:D(5,25), e:D(7,10),  p:0  },
+      { n:"Pipeline ETL y persistencia en PostGIS",           s:D(6,8),  e:D(7,17),  p:10 },
+      { n:"Demo end-to-end con 2 especies",                   s:D(7,6),  e:D(7,31),  p:0  }
+    ], milestone:{ n:"H2 · Demo end-to-end funcional", d:D(7,31) } },
+    { id:"F3", name:"Modelado", color:"var(--f3)", range:"Ago – Oct", tasks:[
+      { n:"Entrenamiento YOLOv8/v11 y validación cruzada",    s:D(8,3),  e:D(9,25),  p:0 },
+      { n:"Índices de vegetación · ExG, VARI, GLI, MGRVI",    s:D(8,17), e:D(9,11),  p:0 },
+      { n:"Segmentación DeepLabV3+ / U-Net",                  s:D(8,24), e:D(10,9),  p:0 },
+      { n:"Clasificador de estadio fenológico (ResNet-18)",   s:D(9,7),  e:D(10,2),  p:0 },
+      { n:"Campaña de vuelo n.° 2 · ampliación a 800 img",    s:D(10,5), e:D(10,23), p:0 },
+      { n:"Reentrenamiento y evaluación final",               s:D(10,19),e:D(10,30), p:0 }
+    ], milestone:{ n:"H3 · mAP@0.5 ≥ 0,75 sobre dataset local", d:D(10,30) } },
+    { id:"F4", name:"Integración y producto", color:"var(--f4)", range:"Sep – Nov", tasks:[
+      { n:"Conectores Sentinel-2 / Google Earth Engine",      s:D(9,1),  e:D(10,2),  p:0 },
+      { n:"Conectores SMAP, Open-Meteo y NASA POWER",         s:D(9,21), e:D(10,16), p:0 },
+      { n:"Motor de reglas agronómicas en YAML",              s:D(10,5), e:D(11,6),  p:0 },
+      { n:"API REST FastAPI y generación de JSON por parcela",s:D(10,12),e:D(11,13), p:0 },
+      { n:"Dashboard React + Leaflet",                        s:D(10,19),e:D(11,27), p:0 },
+      { n:"Validación agronómica con técnicos del INTA",      s:D(11,9), e:D(11,27), p:0 }
+    ], milestone:{ n:"H4 · API documentada y reglas validadas", d:D(11,27) } },
+    { id:"F5", name:"Cierre académico", color:"var(--f5)", range:"Nov – Dic", tasks:[
+      { n:"Suite de tests · cobertura ≥ 70 %",                s:D(11,2), e:D(12,4),  p:0 },
+      { n:"Documentación técnica y manual de usuario",        s:D(11,16),e:D(12,11), p:0 },
+      { n:"Pruebas con productores · 2 a 3 lotes",            s:D(11,23),e:D(12,11), p:0 },
+      { n:"Memoria del PTI y preparación de la defensa",      s:D(11,30),e:D(12,16), p:0 }
+    ], milestone:{ n:"H5 · Defensa pública", d:D(12,18) } },
+    { id:"—", name:"Gestión del proyecto", color:"var(--mgmt)", range:"Mar – Dic", mgmt:true, tasks:[
+      { n:"Reuniones semanales y revisión con el tutor",      s:D(3,2),  e:D(12,18), p:46, mgmt:true }
+    ] }
+  ];
+  const el = (t,c,h) => { const x=document.createElement(t); if(c) x.className=c; if(h!==undefined) x.innerHTML=h; return x; };
+  function row(cls, labelNode, trackNode){
+    const g = el("div","grid "+cls);
+    const l = el("div","lab"); if(labelNode) l.appendChild(labelNode);
+    const t = el("div","trk"); if(trackNode) t.appendChild(trackNode);
+    g.append(l,t); return g;
+  }
+  const chart = document.getElementById("chart");
+  const axTrack = el("div");
+  MONTHS.forEach((m,i)=>{
+    const a = pct(new Date(2026, 2+i, 1));
+    const b = pct(new Date(2026, 3+i, 1));
+    const c = el("div","mo","<b>"+m+"</b>");
+    c.style.left = a+"%"; c.style.width = Math.min(b,100)-a+"%";
+    axTrack.appendChild(c);
+  });
+  const axLab = el("div",null,"Fase / actividad");
+  const axis = row("axis", axLab, axTrack);
+  axis.querySelector(".trk").style.position="relative";
+  chart.appendChild(axis);
+  const seaTrack = el("div");
+  SEASON.forEach(s=>{
+    const r = el("div","srow");
+    s.segs.forEach(([a,b])=>{
+      const bar = el("div","sbar", s.label);
+      bar.style.left = pct(a)+"%";
+      bar.style.width = (pct(b)-pct(a))+"%";
+      bar.style.background = s.color;
+      r.appendChild(bar);
+    });
+    seaTrack.appendChild(r);
+  });
+  const seaLab = el("div",null,"<b>Calendario agronómico</b><em>Tucumán · restricciones reales de campo</em>");
+  chart.appendChild(row("season", seaLab, seaTrack));
+  PHASES.forEach(ph=>{
+    const pl = el("div",null,'<i style="background:'+ph.color+'"></i><b>'+(ph.mgmt?"":ph.id+" · ")+ph.name+"</b><code>"+ph.range+"</code>");
+    pl.style.display="flex"; pl.style.alignItems="center"; pl.style.gap="10px"; pl.style.width="100%";
+    chart.appendChild(row("ph", pl, el("div")));
+    ph.tasks.forEach(t=>{
+      const tr = el("div");
+      const bar = el("div","bar-t"+(t.mgmt?" mgmt":""));
+      bar.style.left = pct(t.s)+"%";
+      bar.style.width = Math.max(pct(t.e)-pct(t.s), .8)+"%";
+      bar.style.background = t.mgmt ? "" : ph.color;
+      bar.title = t.n;
+      if(!t.mgmt && t.p>0){
+        const f = el("div","fill");
+        f.style.width = t.p+"%";
+        bar.appendChild(f);
+      }
+      tr.appendChild(bar);
+      const r = row("tk", null, tr);
+      r.querySelector(".lab").textContent = t.n;
+      r.querySelector(".lab").title = t.n;
+      chart.appendChild(r);
+    });
+    if(ph.milestone){
+      const tr = el("div");
+      const d = el("div","ms");
+      d.style.left = pct(ph.milestone.d)+"%";
+      d.style.background = ph.color;
+      const lb = el("div","ms-lab", ph.milestone.n);
+      lb.style.left = "calc("+pct(ph.milestone.d)+"% + 13px)";
+      lb.style.color = ph.color;
+      tr.append(d,lb);
+      const r = row("tk", null, tr);
+      r.querySelector(".lab").textContent = "Hito";
+      r.querySelector(".lab").style.fontFamily = '"IBM Plex Mono",monospace';
+      r.querySelector(".lab").style.fontSize = "10px";
+      r.querySelector(".lab").style.letterSpacing = ".1em";
+      r.querySelector(".lab").style.textTransform = "uppercase";
+      r.querySelector(".lab").style.color = "var(--ink-soft)";
+      chart.appendChild(r);
+    }
+  });
+  const tints = SEASON[2].segs;
+  chart.querySelectorAll(".grid .trk").forEach(trk=>{
+    trk.style.position = "relative";
+    tints.forEach(([a,b])=>{
+      const w = el("div","wband");
+      w.style.left = pct(a)+"%";
+      w.style.width = (pct(b)-pct(a))+"%";
+      trk.insertBefore(w, trk.firstChild);
+    });
+    const tl = el("div","today");
+    tl.style.left = pct(TODAY)+"%";
+    trk.appendChild(tl);
+  });
+  const axTrk = chart.querySelector(".axis .trk");
+  const flag = el("div","today-flag","HOY · 11 AGO");
+  flag.style.left = pct(TODAY)+"%";
+  axTrk.appendChild(flag);
+  const all = PHASES.flatMap(p=>p.tasks.filter(t=>!t.mgmt));
+  const done = all.filter(t=>t.p===100).length;
+  const wip  = all.filter(t=>t.p>0 && t.p<100).length;
+  const avg  = Math.round(all.reduce((a,t)=>a+t.p,0)/all.length);
+  document.getElementById("cards").innerHTML = [
+    ["Avance global","<b>"+avg+" %</b>ponderado sobre "+all.length+" actividades"],
+    ["Fase en curso","<b>F1 – F2</b>diseño cerrado, entorno en construcción"],
+    ["Completadas","<b>"+done+"</b>actividad finalizada"],
+    ["En ejecución","<b>"+wip+"</b>actividades abiertas en paralelo"],
+    ["Próximo hito","<b>H2</b>demo end-to-end con 2 especies"],
+    ["Riesgo principal","<b>Vuelo</b>la ventana de campo cierra el 20 de mayo"]
+  ].map(([t,d])=>'<div class="card"><dt>'+t+"</dt><dd>"+d+"</dd></div>").join("");
+  document.getElementById("note").textContent =
+    "Las bandas verdes verticales marcan las ventanas en que el vuelo de dron es viable en Tucumán: fin de verano hasta el 20 de mayo, y primavera desde el 20 de septiembre. Fuera de esas franjas, las lluvias estivales y la logística de zafra impiden volar con calidad de imagen suficiente. Las dos campañas de campo están ancladas a esas ventanas, no al calendario académico: si la campaña n.° 1 se pierde, el dataset local no se recupera hasta septiembre y el hito H3 se desplaza en bloque.";
+  const bA = document.getElementById("btn-avance"), bP = document.getElementById("btn-plan");
+  function setView(v){
+    document.body.dataset.view = v;
+    bA.setAttribute("aria-pressed", v==="avance");
+    bP.setAttribute("aria-pressed", v==="plan");
+  }
+  bA.onclick = ()=>setView("avance");
+  bP.onclick = ()=>setView("plan");
+  setView("avance");
+})();
+</script>
+</body>
+</html>
