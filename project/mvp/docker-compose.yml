@@ -7,12 +7,13 @@ services:
       MODEL_PATH: /data/modelo/best.pt
       UPLOAD_DIR: /data/imagenes
       MAX_UPLOAD_MB: 8192
+      TAMANO_LOTE_MAX: 4
     volumes:
       - ./data:/data
     restart: unless-stopped
 
   front:
-    build: ./front
+    build: ./front-react
     ports:
       - "8080:80"
     depends_on:

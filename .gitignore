@@ -218,12 +218,21 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Ortomosaicos e imágenes subidas (archivos pesados, no van al repo)
-img/
+/img/
 mvp/back/data/
 mvp/data/
+<<<<<<< HEAD
 # Datos y modelos (archivos grandes — no versionar)
 data/raw/
 ml/models/*.pt
 ml/models/*.onnx
 ml/models/*.engine
 *.weights
+=======
+*.tif
+*.tiff
+
+# Front React (Node/Vite)
+mvp/front-react/node_modules/
+mvp/front-react/dist/
+>>>>>>> front-react
