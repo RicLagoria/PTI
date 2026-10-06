@@ -221,6 +221,8 @@ __marimo__/
 /img/
 mvp/back/data/
 mvp/data/
+*.tif
+*.tiff
 
 # Front React (Node/Vite)
 mvp/front-react/node_modules/
