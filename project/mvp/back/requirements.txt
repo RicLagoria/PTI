@@ -1,0 +1,17 @@
+# --- Motor Web y API Asíncrona ---
+fastapi==0.128.8
+uvicorn==0.39.0
+starlette==0.49.3
+pydantic==2.13.4
+
+# --- Lectura Geoespacial y Teselas Dinámicas (COG) ---
+rasterio==1.4.3
+rio-tiler==7.9.6
+
+# --- Inteligencia Artificial y Visión por Computadora ---
+ultralytics==8.4.121
+torch==2.8.0
+torchvision==0.23.0
+opencv-python==5.0.0.93
+numpy==2.0.2
+pillow==11.3.0

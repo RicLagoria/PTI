@@ -1,0 +1,7 @@
+__pycache__/
+data/
+runs/
+*.tif
+*.tiff
+*.pt
+*.json

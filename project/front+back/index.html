@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Visor Agrícola - Ortomosaico y Detecciones</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { margin: 0; padding: 0; font-family: sans-serif; display: flex; height: 100vh; }
+    #sidebar { width: 320px; background: #1e293b; color: white; padding: 20px; box-sizing: border-box; display: flex; flex-direction: column; gap: 15px; }
+    #map { flex: 1; height: 100%; }
+    button { background: #10b981; color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    button:disabled { background: #64748b; cursor: not-allowed; }
+    .stat-box { background: #334155; padding: 12px; border-radius: 6px; font-size: 13px; }
+  </style>
+</head>
+<body>
+
+  <div id="sidebar">
+    <h2>Control de Lote</h2>
+    <div class="stat-box">
+      <p><b>Estado:</b> <span id="lbl-estado">Cargando ortomosaico...</span></p>
+      <p><b>Zoom actual:</b> <span id="lbl-zoom">-</span></p>
+      <p><b>Detecciones:</b> <span id="lbl-total-det">0</span></p>
+    </div>
+    <button id="btn-analizar" onclick="ejecutarDeteccion()">🔎 Analizar Cuadrante 3</button>
+  </div>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const API_BASE = "http://localhost:8000";
+    let map = L.map('map');
+    let capaDetecciones = L.layerGroup().addTo(map);
+
+    // 1. Obtener bounds y configurar el visor con las teselas dinámicas
+    fetch(`${API_BASE}/metadata`)
+      .then(res => res.json())
+      .then(meta => {
+        // Centrar mapa en los límites geográficos del campo
+        map.fitBounds(meta.bounds);
+
+        // Conectar la capa ráster al endpoint dinámico de rio-tiler
+        L.tileLayer(`${API_BASE}/tiles/{z}/{x}/{y}.png`, {
+          minZoom: meta.minzoom,
+          maxZoom: meta.maxzoom,
+          attribution: 'Ortomosaico Local COG'
+        }).addTo(map);
+
+        document.getElementById("lbl-estado").innerText = "Ortomosaico listo";
+        document.getElementById("lbl-zoom").innerText = map.getZoom();
+      })
+      .catch(err => {
+        document.getElementById("lbl-estado").innerText = "Error conectando a la API";
+        console.error(err);
+      });
+
+    map.on('zoomend', () => {
+      document.getElementById("lbl-zoom").innerText = map.getZoom();
+    });
+
+    // 2. Disparar el análisis y proyectar los datos vectoriales del JSON
+    function ejecutarDeteccion() {
+      const btn = document.getElementById("btn-analizar");
+      btn.disabled = true;
+      btn.innerText = "Analizando (YOLOv8)...";
+      document.getElementById("lbl-estado").innerText = "Procesando inferencia...";
+
+      fetch(`${API_BASE}/analizar?cuadrante=3&conf=0.10`, { method: "POST" })
+        .then(res => res.json())
+        .then(data => {
+          capaDetecciones.clearLayers();
+          const total = data.detecciones.length;
+          document.getElementById("lbl-total-det").innerText = total;
+          document.getElementById("lbl-estado").innerText = "Completado con éxito";
+
+          data.detecciones.forEach(d => {
+            // Marcador vectorial en el centro GPS del hallazgo
+            const marker = L.circleMarker([d.gps_centro.lat, d.gps_centro.lon], {
+              radius: 6,
+              color: '#ef4444',
+              fillColor: '#f87171',
+              fillOpacity: 0.8,
+              weight: 2
+            });
+
+            marker.bindPopup(`
+              <b>Clase:</b> ${d.clase}<br>
+              <b>Confianza:</b> ${d.confianza}%<br>
+              <b>Coords:</b> ${d.gps_centro.lat.toFixed(5)}, ${d.gps_centro.lon.toFixed(5)}
+            `);
+
+            capaDetecciones.addLayer(marker);
+          });
+
+          btn.disabled = false;
+          btn.innerText = "🔎 Reanalizar Cuadrante 3";
+        })
+        .catch(err => {
+          document.getElementById("lbl-estado").innerText = "Fallo en la inferencia";
+          btn.disabled = false;
+          btn.innerText = "Reintentar";
+          console.error(err);
+        });
+    }
+  </script>
+</body>
+</html>

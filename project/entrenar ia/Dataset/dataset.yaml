@@ -1,0 +1,12 @@
+path: ./Dataset
+train: images/train
+val: images/val
+test:
+
+names:
+    0: cana
+    1: arbol
+    2: camino
+    3: terreno sin plantar
+    4: plantacion creciendo
+    5: palmera

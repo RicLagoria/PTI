@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>Visor Agrícola - Streaming de Detecciones</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    body { margin: 0; padding: 0; font-family: sans-serif; display: flex; height: 100vh; }
+    #sidebar { width: 330px; background: #1e293b; color: white; padding: 20px; box-sizing: border-box; display: flex; flex-direction: column; gap: 15px; }
+    #map { flex: 1; height: 100%; }
+    button { background: #10b981; color: white; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer; }
+    button:disabled { background: #64748b; cursor: not-allowed; }
+    select, input[type="file"] { width: 100%; box-sizing: border-box; padding: 6px; border-radius: 6px; border: none; background: #f1f5f9; color: #0f172a; font-size: 13px; }
+    input[type="range"] { width: 100%; margin: 0; }
+    label { display: block; margin-bottom: 6px; font-weight: bold; }
+    .stat-box button { width: 100%; margin-top: 8px; }
+    .stat-box p { margin: 8px 0 0 0; }
+    .stat-box { background: #334155; padding: 12px; border-radius: 6px; font-size: 13px; }
+    .progress-bar-bg { background: #475569; width: 100%; height: 10px; border-radius: 5px; overflow: hidden; margin-top: 8px; }
+    .progress-bar-fill { background: #38bdf8; height: 100%; width: 0%; transition: width 0.3s; }
+  </style>
+</head>
+<body>
+
+  <div id="sidebar">
+    <h2>Control de Lote</h2>
+    <div class="stat-box">
+      <label for="sel-imagen">Ortomosaico</label>
+      <select id="sel-imagen" onchange="cargarImagen(this.value)" disabled>
+        <option value="">Sin imágenes cargadas</option>
+      </select>
+    </div>
+    <div class="stat-box">
+      <label for="inp-archivo">Subir GeoTIFF</label>
+      <input type="file" id="inp-archivo" accept=".tif,.tiff" />
+      <button id="btn-subir" onclick="subirImagen()">Subir imagen</button>
+      <p id="lbl-carga"></p>
+    </div>
+    <div class="stat-box">
+      <p><b>Estado:</b> <span id="lbl-estado">Cargando...</span></p>
+      <p><b>Detecciones acumuladas:</b> <span id="lbl-total-det">0</span></p>
+      <p><b>Progreso:</b> <span id="lbl-pct">0%</span></p>
+      <div class="progress-bar-bg">
+        <div id="bar-fill" class="progress-bar-fill"></div>
+      </div>
+    </div>
+    <div class="stat-box">
+      <label for="sel-cuadrante">Zona a analizar</label>
+      <select id="sel-cuadrante">
+        <option value="">Imagen completa</option>
+        <option value="1">Cuadrante 1 (noroeste)</option>
+        <option value="2">Cuadrante 2 (noreste)</option>
+        <option value="3">Cuadrante 3 (suroeste)</option>
+        <option value="4">Cuadrante 4 (sureste)</option>
+      </select>
+    </div>
+    <div class="stat-box">
+      <label for="rng-conf">Confianza mínima: <span id="lbl-conf">10%</span></label>
+      <input type="range" id="rng-conf" min="1" max="90" step="1" value="10"
+             oninput="document.getElementById('lbl-conf').innerText = `${this.value}%`" />
+    </div>
+    <button id="btn-analizar" onclick="iniciarAnalisisEnVivo()" disabled>⚡ Analizar (En Vivo)</button>
+  </div>
+
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // Detrás de nginx (Docker) la API se sirve en /api; abriendo el archivo directo, en el puerto del backend
+    const API_BASE = location.protocol === "file:" ? "http://localhost:8000" : "/api";
+    let map = L.map('map');
+    let capaDetecciones = L.layerGroup().addTo(map);
+    let totalDetecciones = 0;
+
+    let capaTeselas = null;
+    let imagenActual = null;
+    let eventSource = null;
+
+    // Lista de ortomosaicos ya subidos; se abre el más reciente
+    fetch(`${API_BASE}/imagenes`)
+      .then(res => res.json())
+      .then(imagenes => {
+        imagenes.forEach(agregarOpcionImagen);
+        if (imagenes.length > 0) {
+          cargarImagen(imagenes[0].id);
+        } else {
+          document.getElementById("lbl-estado").innerText = "Subí un ortomosaico para empezar";
+        }
+      })
+      .catch(err => {
+        document.getElementById("lbl-estado").innerText = "Error conectando con el servidor";
+      });
+
+    function agregarOpcionImagen(meta, alPrincipio = false) {
+      const sel = document.getElementById("sel-imagen");
+      if (sel.disabled) {
+        sel.innerHTML = "";
+        sel.disabled = false;
+      }
+      const opcion = new Option(meta.nombre, meta.id);
+      if (alPrincipio) sel.prepend(opcion); else sel.append(opcion);
+    }
+
+    // Inicialización del visor y teselas dinámicas para la imagen elegida
+    function cargarImagen(id) {
+      const btn = document.getElementById("btn-analizar");
+      btn.disabled = true;
+      btn.innerText = "⚡ Analizar (En Vivo)";
+
+      // Descartar lo que quedara de la imagen anterior
+      if (eventSource) eventSource.close();
+      if (capaTeselas) map.removeLayer(capaTeselas);
+      capaTeselas = null;
+      imagenActual = null;
+      capaDetecciones.clearLayers();
+      totalDetecciones = 0;
+      document.getElementById("lbl-total-det").innerText = "0";
+      actualizarBarra(0);
+      document.getElementById("sel-imagen").value = id;
+      document.getElementById("lbl-estado").innerText = "Cargando ortomosaico...";
+
+      fetch(`${API_BASE}/imagenes/${id}/metadata`)
+        .then(res => {
+          if (!res.ok) throw new Error(res.status);
+          return res.json();
+        })
+        .then(meta => {
+          map.fitBounds(meta.bounds);
+          capaTeselas = L.tileLayer(`${API_BASE}/imagenes/${id}/tiles/{z}/{x}/{y}.png`, {
+            minZoom: meta.minzoom,
+            maxZoom: meta.maxzoom,
+            // Sin esto Leaflet pide teselas de toda la pantalla y las de fuera de la imagen dan 404
+            bounds: meta.bounds,
+            attribution: 'Ortomosaico Local'
+          }).addTo(map);
+          imagenActual = id;
+          btn.disabled = false;
+          document.getElementById("lbl-estado").innerText = "Listo para iniciar";
+        })
+        .catch(err => {
+          document.getElementById("lbl-estado").innerText = "Error cargando mapa";
+        });
+    }
+
+    function subirImagen() {
+      const archivo = document.getElementById("inp-archivo").files[0];
+      const lblCarga = document.getElementById("lbl-carga");
+      if (!archivo) {
+        lblCarga.innerText = "Elegí un archivo .tif primero";
+        return;
+      }
+
+      const btn = document.getElementById("btn-subir");
+      btn.disabled = true;
+
+      // XMLHttpRequest en lugar de fetch porque informa el avance de la subida
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", `${API_BASE}/imagenes?nombre=${encodeURIComponent(archivo.name)}`);
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable) {
+          lblCarga.innerText = `Subiendo... ${Math.round((e.loaded / e.total) * 100)}%`;
+        }
+      };
+      // El archivo ya llegó; el servidor lo valida y lo convierte a COG antes de responder
+      xhr.upload.onload = () => {
+        lblCarga.innerText = "Procesando imagen en el servidor...";
+      };
+
+      xhr.onload = () => {
+        btn.disabled = false;
+        let respuesta = {};
+        try { respuesta = JSON.parse(xhr.responseText); } catch (e) {}
+
+        if (xhr.status === 201) {
+          lblCarga.innerText = "Imagen cargada";
+          document.getElementById("inp-archivo").value = "";
+          agregarOpcionImagen(respuesta, true);
+          cargarImagen(respuesta.id);
+        } else {
+          lblCarga.innerText = `Error: ${respuesta.detail || "no se pudo subir la imagen"}`;
+        }
+      };
+
+      xhr.onerror = () => {
+        btn.disabled = false;
+        lblCarga.innerText = "Error: se perdió la conexión con el servidor";
+      };
+
+      xhr.send(archivo);
+    }
+
+    function iniciarAnalisisEnVivo() {
+      if (!imagenActual) return;
+      const btn = document.getElementById("btn-analizar");
+      btn.disabled = true;
+      btn.innerText = "Procesando en tiempo real...";
+      document.getElementById("lbl-estado").innerText = "Analizando celdas...";
+      
+      // Reiniciar contadores y capas
+      capaDetecciones.clearLayers();
+      totalDetecciones = 0;
+      document.getElementById("lbl-total-det").innerText = "0";
+      actualizarBarra(0);
+
+      // Abrir conexión Server-Sent Events (SSE)
+      const cuadrante = document.getElementById("sel-cuadrante").value;
+      // El modelo descarta las detecciones por debajo de esta confianza
+      const conf = (document.getElementById("rng-conf").value / 100).toFixed(2);
+      const params = new URLSearchParams({ conf });
+      if (cuadrante) params.set("cuadrante", cuadrante);
+      eventSource = new EventSource(`${API_BASE}/imagenes/${imagenActual}/analizar-stream?${params}`);
+
+      eventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        // 1. Actualizar métricas visuales del bloque recibido
+        actualizarBarra(data.progreso_pct);
+        totalDetecciones += data.detecciones.length;
+        document.getElementById("lbl-total-det").innerText = totalDetecciones;
+
+        // 2. Estampar los nuevos puntos en el mapa inmediatamente
+        data.detecciones.forEach(d => {
+          const marker = L.circleMarker([d.gps_centro.lat, d.gps_centro.lon], {
+            radius: 5,
+            color: '#ef4444',
+            fillColor: '#f87171',
+            fillOpacity: 0.85,
+            weight: 2
+          });
+
+          marker.bindPopup(`
+            <b>Clase:</b> ${d.clase}<br>
+            <b>Confianza:</b> ${d.confianza}%<br>
+            <b>Lat/Lon:</b> ${d.gps_centro.lat.toFixed(5)}, ${d.gps_centro.lon.toFixed(5)}
+          `);
+
+          capaDetecciones.addLayer(marker);
+        });
+
+        // 3. Cerrar conexión al alcanzar el 100%
+        if (data.bloque >= data.total_bloques) {
+          eventSource.close();
+          document.getElementById("lbl-estado").innerText = "Análisis completado";
+          btn.disabled = false;
+          btn.innerText = "⚡ Reanalizar";
+        }
+      };
+
+      eventSource.onerror = (err) => {
+        console.error("Error en streaming:", err);
+        eventSource.close();
+        document.getElementById("lbl-estado").innerText = "Flujo finalizado o interrumpido";
+        btn.disabled = false;
+        btn.innerText = "Reintentar";
+      };
+    }
+
+    function actualizarBarra(pct) {
+      document.getElementById("lbl-pct").innerText = `${pct}%`;
+      document.getElementById("bar-fill").style.width = `${pct}%`;
+    }
+  </script>
+</body>
+</html>
