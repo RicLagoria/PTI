@@ -207,37 +207,66 @@ PTI/
 
 ## Inicio rápido
 
+El código que corre hoy es el MVP en `project/mvp/`: dos nodos (contenedores) independientes,
+orquestados con Docker Compose.
+
+| Nodo | Servicio | Puerto | Qué hace |
+|---|---|---|---|
+| `front` | nginx + SPA React | `8080` (único expuesto) | Sirve la interfaz y hace de *gateway*: reenvía `/api/*` a la API |
+| `back` | FastAPI + uvicorn + YOLOv8 | `8000` (solo red interna) | Carga de ortomosaicos, teselas del mapa y análisis en vivo (SSE) |
+
 ### Requisitos previos
 
-- Docker >= 24.0 y Docker Compose >= 2.20
+- Docker Desktop (o Docker Engine >= 24) con Docker Compose v2
 - Git
-- (Opcional para entrenamiento) GPU con CUDA 11.8+ o acceso a Google Colab
+- ~6 GB libres para las imágenes (torch en su variante CPU)
 
-### Instalación
+### Levantar el entorno paso a paso
 
 ```bash
-# 1. Clonar el repositorio
-git clone https://github.com/Obriguera/PTI.git
-cd PTI
+# 1. Clonar el repositorio y entrar a la carpeta del MVP
+git clone https://github.com/RicLagoria/PTI.git
+cd PTI/project/mvp
 
-# 2. Copiar y configurar variables de entorno
-cp infra/.env.example infra/.env
-# Editar infra/.env con las credenciales de GEE y demás APIs
+# 2. Poner los pesos del modelo donde los busca el backend (MODEL_PATH=/data/modelo/best.pt).
+#    La carpeta data/ es el volumen compartido y no se versiona.
+mkdir -p data/modelo
+cp train-3/weights/best.pt data/modelo/best.pt
 
-# 3. Levantar todos los servicios
-docker compose -f infra/docker-compose.yml up --build
+# 3. Construir y levantar los dos nodos en segundo plano
+#    (la primera vez tarda varios minutos: descarga torch CPU y compila el front)
+docker compose up -d --build
 
-# 4. Acceder al dashboard
-# http://localhost:3000
-
-# 5. Acceder a la documentación de la API
-# http://localhost:8000/docs
+# 4. Verificar que están corriendo
+docker compose ps
 ```
 
-### Ejecutar los tests
+- Interfaz: <http://localhost:8080> (usuario de prueba del front: `admin` / `1234`).
+- API a través del gateway: <http://localhost:8080/api/imagenes>.
+- La API tarda ~15 s en arrancar (carga torch y el modelo). Mientras tanto `/api` responde 502.
+
+### Operar cada nodo por separado
 
 ```bash
-docker compose -f infra/docker-compose.yml exec backend pytest tests/ -v --cov
+docker compose stop back      # detiene solo la API (el front sigue sirviendo; /api responde 502)
+docker compose start back     # la vuelve a levantar sin tocar el front
+docker compose stop front     # detiene solo el front/gateway (la API sigue viva en la red interna)
+docker compose start front
+docker compose logs -f back   # logs de un nodo
+docker compose down           # baja todo (los datos quedan en data/)
+```
+
+La prueba completa de independencia de nodos está en
+`docs/pdc/entrega-2-infraestructura/probar-nodos.sh`.
+
+### Probar sin un ortomosaico real
+
+Se puede generar un GeoTIFF sintético dentro del contenedor de la API y subirlo por el gateway:
+
+```bash
+docker compose exec back python -c "import numpy as np, rasterio; from rasterio.transform import from_bounds; img=np.random.default_rng(0).integers(40,190,(3,1300,1300),dtype='uint8'); d=rasterio.open('/tmp/prueba.tif','w',driver='GTiff',width=1300,height=1300,count=3,dtype='uint8',crs='EPSG:4326',transform=from_bounds(-65.201,-26.801,-65.2,-26.8,1300,1300)); d.write(img); d.close()"
+docker compose cp back:/tmp/prueba.tif ./prueba.tif
+curl -X POST --data-binary @prueba.tif "http://localhost:8080/api/imagenes?nombre=prueba.tif"
 ```
 
 ---
