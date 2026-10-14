@@ -236,3 +236,6 @@ ml/models/*.engine
 mvp/front-react/node_modules/
 mvp/front-react/dist/
 >>>>>>> front-react
+
+# Volúmenes de los servicios (ver docs/arquitectura.md)
+/datos/
