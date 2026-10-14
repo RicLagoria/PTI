@@ -219,23 +219,20 @@ __marimo__/
 
 # Ortomosaicos e imágenes subidas (archivos pesados, no van al repo)
 /img/
-mvp/back/data/
-mvp/data/
-<<<<<<< HEAD
+*.tif
+*.tiff
+project/mvp/back/data/
+project/mvp/data/
+
 # Datos y modelos (archivos grandes — no versionar)
 data/raw/
 ml/models/*.pt
 ml/models/*.onnx
 ml/models/*.engine
 *.weights
-=======
-*.tif
-*.tiff
 
-# Front React (Node/Vite)
-mvp/front-react/node_modules/
-mvp/front-react/dist/
->>>>>>> front-react
+# Front React (Node/Vite); dist/ ya está ignorado más arriba
+node_modules/
 
 # Volúmenes de los servicios (ver docs/arquitectura.md)
 /datos/
