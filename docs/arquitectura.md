@@ -112,10 +112,12 @@ sequenceDiagram
 
 Dos cosas que este flujo arregla de arranque:
 
-- **`gps_centro` real.** Hoy todas las detecciones de una misma celda comparten
-  la coordenada del centro de la celda y se apilan en el mapa. Al mover la
-  georreferenciación a `cliente-api`, que tiene el `transform` del raster, el
-  centro se calcula desde `box_global_px` y cada detección cae donde va.
+- **`gps_centro` real.** Hoy el backend le pone a todas las detecciones de una
+  celda la coordenada del centro de la celda, y `FieldView` lo compensa
+  recalculando el centro de cada caja con una interpolación sobre los `bounds`,
+  que solo vale para un raster orientado al norte y sin rotación. Al mover la
+  georreferenciación a `cliente-api`, que tiene el `transform` del raster, la
+  coordenada sale bien de origen y el front deja de necesitar esa corrección.
 - **`imgsz` deja de estar hardcodeado.** Si un entrenamiento futuro cambia el
   tamaño de entrada, el cliente lo lee de `GET /modelo` y ajusta la grilla.
 
