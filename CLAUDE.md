@@ -44,6 +44,7 @@ cd project/mvp/front-react && npm run lint
 cd project/mvp/back && python predict.py
 ```
 
+<<<<<<< HEAD
 ### Comandos de la Nueva Arquitectura (project/servicios/)
 
 ```bash
@@ -65,6 +66,8 @@ cd project/servicios/cliente-api && IA_INFERENCIA_URL=http://localhost:8001 uvic
 cd project/servicios/cliente-web && npm run dev
 ```
 
+=======
+>>>>>>> 4bdf0ef0321aeca3b1ed4e62ac8e3098c89ee7eb
 `project/requerimientos.txt` corresponde al entorno de entrenamiento y etiquetado (labelme, etc.), no al servidor web.
 
 ### Rutas y variables de entorno
