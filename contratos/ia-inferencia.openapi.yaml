@@ -1,0 +1,113 @@
+openapi: 3.0.3
+info:
+  title: AgroVision - IA Inferencia API
+  description: Servicio de inferencia para detección de malezas y anomalías en teselas de ortomosaicos.
+  version: 1.0.0
+paths:
+  /salud:
+    get:
+      summary: Chequeo de salud del servicio
+      operationId: getSalud
+      responses:
+        '200':
+          description: Servicio operativo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  estado:
+                    type: string
+                    example: ok
+
+  /modelo:
+    get:
+      summary: Metadatos del modelo activo
+      operationId: getModelo
+      responses:
+        '200':
+          description: Información del modelo activo
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - version
+                  - clases
+                  - imgsz
+                properties:
+                  version:
+                    type: string
+                    example: v1
+                  clases:
+                    type: array
+                    items:
+                      type: string
+                    example: ["maleza", "falla", "camino", "lodazal"]
+                  imgsz:
+                    type: integer
+                    example: 640
+                  metricas:
+                    type: object
+                    additionalProperties: true
+
+  /detectar:
+    post:
+      summary: Detección por lote sobre teselas
+      description: Recibe teselas en una petición multipart y devuelve cajas en píxeles locales asociadas a cada id de tesela.
+      operationId: postDetectar
+      parameters:
+        - name: conf
+          in: query
+          description: Umbral de confianza mínimo (0.0 a 1.0)
+          required: false
+          schema:
+            type: number
+            default: 0.10
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              description: Colección de archivos de imagen donde cada clave o nombre de archivo es el identificador opaco de la celda.
+      responses:
+        '200':
+          description: Detecciones en coordenadas locales de cada tesela
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - version_modelo
+                  - detecciones
+                properties:
+                  version_modelo:
+                    type: string
+                    example: v1
+                  detecciones:
+                    type: array
+                    items:
+                      type: object
+                      required:
+                        - id
+                        - clase
+                        - confianza
+                        - box_local
+                      properties:
+                        id:
+                          type: string
+                          example: "celda_1_4"
+                        clase:
+                          type: string
+                          example: maleza
+                        confianza:
+                          type: number
+                          example: 85.5
+                        box_local:
+                          type: array
+                          description: Coordenadas [x1, y1, x2, y2] en píxeles de la tesela recibida
+                          items:
+                            type: number
+                          example: [120.5, 45.0, 180.2, 98.4]
+

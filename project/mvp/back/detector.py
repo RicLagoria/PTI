@@ -1,8 +1,26 @@
-import os
+from pathlib import Path
 
 from ultralytics import YOLO
 
-MODEL_PATH = os.environ.get("MODEL_PATH", "runs/detect/train-2/weights/best.pt")
+
+def _obtener_ruta_modelo() -> str:
+    env_path = os.environ.get("MODEL_PATH")
+    if env_path and Path(env_path).exists():
+        return env_path
+
+    candidatos = [
+        Path("data/modelo/best.pt"),
+        Path("../data/modelo/best.pt"),
+        Path(__file__).resolve().parent.parent / "data" / "modelo" / "best.pt",
+    ]
+    for c in candidatos:
+        if c.exists():
+            return str(c)
+
+    return env_path or "data/modelo/best.pt"
+
+
+MODEL_PATH = _obtener_ruta_modelo()
 
 class FieldDetector:
     def __init__(self, model_path=MODEL_PATH, conf_threshold=0.15):

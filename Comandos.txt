@@ -1,0 +1,23 @@
+# Iniciar todo el entorno de desarrollo (ia-inferencia en :8001, cliente-api en :8000, cliente-web en :8080):
+docker compose -f despliegue/compose.dev.yml up --build
+
+# O desplegar por separado:
+docker compose -f despliegue/compose.cliente.yml up --build
+docker compose -f despliegue/compose.ia.yml up --build
+
+
+
+OPCION B SIN docker
+
+1.Iniciar inferencia IA
+cd project/servicios/ia-inferencia
+MODEL_PATH=../../../datos/modelos/activo/best.pt uvicorn app.server:app --port 8001 --reload
+
+2.Iniciar CLiente API:
+
+cd project/servicios/cliente-api
+IA_INFERENCIA_URL=http://localhost:8001 uvicorn app.server:app --port 8000 --reload
+
+3.Iniciar Cliente WEB:
+cd project/servicios/cliente-web
+npm install && npm run dev

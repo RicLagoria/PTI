@@ -1,0 +1,41 @@
+services:
+  ia-inferencia:
+    build: ../project/servicios/ia-inferencia
+    environment:
+      MODEL_PATH: /datos/modelos/activo/best.pt
+    volumes:
+      - ../datos/modelos:/datos/modelos:ro
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+
+  ia-entrenamiento-api:
+    build: ../project/servicios/ia-entrenamiento
+    environment:
+      MODELOS_DIR: /datos/modelos
+      DATASETS_DIR: /datos/datasets
+      TRABAJOS_DIR: /datos/trabajos
+    volumes:
+      - ../datos/modelos:/datos/modelos
+      - ../datos/datasets:/datos/datasets
+      - ../datos/trabajos:/datos/trabajos
+      - ../contratos:/contratos:ro
+    ports:
+      - "8002:8002"
+    restart: unless-stopped
+
+  ia-entrenamiento-worker:
+    build: ../project/servicios/ia-entrenamiento
+    command: ["python", "worker/entrenador.py"]
+    environment:
+      MODELOS_DIR: /datos/modelos
+      DATASETS_DIR: /datos/datasets
+      TRABAJOS_DIR: /datos/trabajos
+    volumes:
+      - ../datos/modelos:/datos/modelos
+      - ../datos/datasets:/datos/datasets
+      - ../datos/trabajos:/datos/trabajos
+    depends_on:
+      - ia-entrenamiento-api
+    restart: unless-stopped
+

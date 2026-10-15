@@ -1,0 +1,186 @@
+openapi: 3.0.3
+info:
+  title: AgroVision - IA Entrenamiento API
+  description: Servicio para gestión de datasets, ejecución de entrenamientos y registro de versiones de modelos YOLO.
+  version: 1.0.0
+paths:
+  /clases:
+    get:
+      summary: Taxonomía canónica de clases
+      operationId: getClases
+      responses:
+        '200':
+          description: Lista ordenada de clases
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+
+  /datasets:
+    get:
+      summary: Lista de datasets cargados
+      operationId: getDatasets
+      responses:
+        '200':
+          description: Datasets registrados
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: string
+                    nombre:
+                      type: string
+                    total_imagenes:
+                      type: integer
+                    total_anotaciones:
+                      type: integer
+                    fecha_creacion:
+                      type: string
+    post:
+      summary: Subir dataset (ZIP con imágenes y JSONs de LabelMe)
+      operationId: postDataset
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - archivo
+              properties:
+                archivo:
+                  type: string
+                  format: binary
+                nombre:
+                  type: string
+      responses:
+        '201':
+          description: Dataset procesado y validado
+          content:
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: Error de validación o clases desconocidas
+
+  /datasets/{id}:
+    delete:
+      summary: Eliminar dataset
+      operationId: deleteDataset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Dataset eliminado
+
+  /entrenamientos:
+    get:
+      summary: Lista de trabajos de entrenamiento
+      operationId: getEntrenamientos
+      responses:
+        '200':
+          description: Lista de entrenamientos
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+    post:
+      summary: Encolar nuevo trabajo de entrenamiento
+      operationId: postEntrenamiento
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - datasets
+              properties:
+                datasets:
+                  type: array
+                  items:
+                    type: string
+                epocas:
+                  type: integer
+                  default: 50
+                imgsz:
+                  type: integer
+                  default: 640
+                pesos_base:
+                  type: string
+                  default: "yolov8n.pt"
+      responses:
+        '202':
+          description: Entrenamiento encolado
+
+  /entrenamientos/{id}/stream:
+    get:
+      summary: Streaming SSE de métricas y avance de entrenamiento
+      operationId: streamEntrenamiento
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Event stream SSE con época, pérdidas y métricas
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /modelos:
+    get:
+      summary: Versiones registradas de modelos y sus métricas
+      operationId: getModelos
+      responses:
+        '200':
+          description: Modelos en el registro
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+
+  /modelos/activo/pesos:
+    get:
+      summary: Descarga del archivo .pt del modelo activo
+      operationId: getPesosActivos
+      responses:
+        '200':
+          description: Binario de pesos YOLO
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /modelos/{v}/activar:
+    post:
+      summary: Activar versión específica como modelo en producción
+      operationId: activarModelo
+      parameters:
+        - name: v
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Modelo activado exitosamente
+
