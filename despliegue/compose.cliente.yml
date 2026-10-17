@@ -1,4 +1,23 @@
 services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: agrovision
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-agrovision}
+      POSTGRES_DB: agrovision
+    volumes:
+      - ../datos/db:/var/lib/postgresql/data
+      - ../project/servicios/base-datos/init:/docker-entrypoint-initdb.d:ro
+    # Sin "ports" acá a propósito: en el despliegue real la base no se
+    # expone afuera del contenedor, solo le hablan los demás servicios de
+    # la misma red (cliente-api).
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agrovision"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
   cliente-api:
     build: ../project/servicios/cliente-api
     user: "${UID:-1000}:${GID:-1000}"
@@ -7,10 +26,16 @@ services:
       UPLOAD_DIR: /datos/ortomosaicos
       MAX_UPLOAD_MB: 8192
       TAMANO_LOTE_MAX: 4
+      DATABASE_URL: postgresql://agrovision:${DB_PASSWORD:-agrovision}@db:5432/agrovision
+      JWT_SECRET: ${JWT_SECRET:?hay que definir JWT_SECRET en el .env de este despliegue}
+      FRONTEND_ORIGIN: "${FRONTEND_ORIGIN:-http://localhost:8080}"
     volumes:
       - ../datos/ortomosaicos:/datos/ortomosaicos
     ports:
       - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
     networks:
       default:
         aliases:
