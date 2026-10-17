@@ -6,28 +6,26 @@ import { Input, Button, Card, Modal, ModalContent, ModalHeader, ModalBody, Modal
 import { Leaf, User, Lock } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAppContext } from "../../context/AppContext";
+import { iniciarSesion as iniciarSesionApi } from "../../services/AuthService";
 import fieldImg from "../../assets/img/sale.jpg";
 
 export default function LoginPage() {
   const [loginData, setLoginData] = useState({ username: "", password: "" });
   const [loading, setLoading] = useState(false);
-  const [errorOpen, setErrorOpen] = useState(false);
-  const { setIsLoggedIn, setUsername } = useAppContext();
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const { iniciarSesion } = useAppContext();
 
   const handleLogin = async () => {
+    if (!loginData.username || !loginData.password) {
+      setErrorMsg("Completá usuario y contraseña.");
+      return;
+    }
     setLoading(true);
     try {
-      const isValid = loginData.username === "admin" && loginData.password === "1234";
-      if (!isValid) {
-        throw new Error("Credenciales inválidas");
-      }
-
-      localStorage.setItem("token", "admin-token");
-      localStorage.setItem("username", "admin");
-      setUsername("admin");
-      setIsLoggedIn(true);
+      const perfil = await iniciarSesionApi(loginData.username, loginData.password);
+      iniciarSesion(perfil);
     } catch (error) {
-      setErrorOpen(true);
+      setErrorMsg(error instanceof Error ? error.message : "Usuario o contraseña incorrectos.");
     } finally {
       setLoading(false);
     }
@@ -72,7 +70,7 @@ export default function LoginPage() {
           >
             <div className="text-center">
               <h2 className="text-3xl font-bold text-white">Iniciar Sesión</h2>
-              <p className="mt-2 text-gray-200">Usuario admin / contraseña 1234</p>
+              <p className="mt-2 text-gray-200">Entrá con tu usuario de GitHub del equipo</p>
             </div>
 
             <div className="mt-8 flex flex-col gap-6">
@@ -80,7 +78,7 @@ export default function LoginPage() {
                 label="Usuario"
                 value={loginData.username}
                 onChange={(e) => setLoginData({ ...loginData, username: e.target.value })}
-                placeholder="admin"
+                placeholder="tu-usuario-de-github"
                 onKeyPress={handleKeyPress}
                 startContent={<User className="w-5 h-5 text-white" />}
               />
@@ -89,7 +87,6 @@ export default function LoginPage() {
                 type="password"
                 value={loginData.password}
                 onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
-                placeholder="1234"
                 onKeyPress={handleKeyPress}
                 startContent={<Lock className="w-5 h-5 text-white" />}
               />
@@ -112,14 +109,14 @@ export default function LoginPage() {
       </div>
 
       {/* Modal de error */}
-      <Modal isOpen={errorOpen} onOpenChange={setErrorOpen}>
+      <Modal isOpen={errorMsg !== null} onOpenChange={(open) => !open && setErrorMsg(null)}>
         <ModalContent>
           <ModalHeader className="font-bold text-red-500">Autenticación fallida</ModalHeader>
           <ModalBody>
-            <p>Usuario o contraseña incorrectos. Usa admin / 1234.</p>
+            <p>{errorMsg}</p>
           </ModalBody>
           <ModalFooter>
-            <Button color="danger" onClick={() => setErrorOpen(false)}>
+            <Button color="danger" onClick={() => setErrorMsg(null)}>
               Cerrar
             </Button>
           </ModalFooter>
