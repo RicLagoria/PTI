@@ -27,7 +27,7 @@ services:
       MAX_UPLOAD_MB: 8192
       TAMANO_LOTE_MAX: 4
       DATABASE_URL: postgresql://agrovision:${DB_PASSWORD:-agrovision}@db:5432/agrovision
-      JWT_SECRET: ${JWT_SECRET:?hay que definir JWT_SECRET en el .env de este despliegue}
+      JWT_SECRET: ${JWT_SECRET:-agrovision-dev-secret-cambiar-en-produccion}
       FRONTEND_ORIGIN: "${FRONTEND_ORIGIN:-http://localhost:8080}"
     volumes:
       - ../datos/ortomosaicos:/datos/ortomosaicos
