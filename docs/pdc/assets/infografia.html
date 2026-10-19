@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Infografía AgroVision</title>
+<style>
+  :root{
+    --bg:#F3F1E8; --ink:#1F2A1C; --soft:#56614F; --rule:#C9C6B4;
+    --green:#3F6B34; --green-l:#DCE7D3; --amber:#B5771A; --amber-l:#F3E3C6;
+    --blue:#33557A; --blue-l:#D8E2EE; --red:#9B4230; --red-l:#F1DAD3;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:"Segoe UI",system-ui,sans-serif;width:1200px}
+  .wrap{padding:44px 52px 40px}
+  header{display:flex;justify-content:space-between;align-items:flex-end;border-bottom:3px solid var(--ink);padding-bottom:18px}
+  .eyebrow{font:600 13px/1 "Consolas",monospace;letter-spacing:.14em;text-transform:uppercase;color:var(--soft)}
+  h1{font:800 54px/1 Georgia,serif;margin:10px 0 6px;letter-spacing:-.02em}
+  h1 span{color:var(--green)}
+  .sub{font-size:19px;color:var(--soft);max-width:640px;line-height:1.35}
+  .team{text-align:right;font-size:14px;color:var(--soft);line-height:1.55}
+  .team b{color:var(--ink)}
+  h2{font:700 15px/1 "Consolas",monospace;letter-spacing:.12em;text-transform:uppercase;margin:34px 0 14px;color:var(--soft);display:flex;gap:10px;align-items:center}
+  h2:after{content:"";flex:1;height:1px;background:var(--rule)}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .stat{background:#fff;border:1px solid var(--rule);border-radius:10px;padding:18px 18px 16px}
+  .stat b{display:block;font:800 34px/1 Georgia,serif;color:var(--red)}
+  .stat span{display:block;margin-top:8px;font-size:14.5px;line-height:1.35;color:var(--soft)}
+  .flow{display:grid;grid-template-columns:repeat(4,1fr);gap:0;position:relative}
+  .step{background:#fff;border:1px solid var(--rule);padding:18px 18px 20px;position:relative}
+  .step:first-child{border-radius:10px 0 0 10px}
+  .step:last-child{border-radius:0 10px 10px 0}
+  .step + .step{border-left:0}
+  .num{display:inline-grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--green);color:#fff;font-weight:700;font-size:16px}
+  .step h3{margin:12px 0 6px;font-size:18px}
+  .step p{margin:0;font-size:14.5px;line-height:1.4;color:var(--soft)}
+  .arch{background:#fff;border:1px solid var(--rule);border-radius:12px;padding:20px}
+  .note{font-size:13.5px;color:var(--soft);margin-top:10px}
+  .mods{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .mod{border-radius:10px;padding:14px 16px;border:1px solid var(--rule);background:#fff}
+  .mod .tag{font:700 12px/1 "Consolas",monospace;letter-spacing:.08em;color:#fff;background:var(--ink);padding:4px 7px;border-radius:4px}
+  .mod h4{margin:10px 0 4px;font-size:16.5px}
+  .mod p{margin:0;font-size:14px;line-height:1.38;color:var(--soft)}
+  .mod.done{background:var(--green-l)}
+  .mod.done .tag{background:var(--green)}
+  footer{margin-top:30px;padding-top:14px;border-top:1px solid var(--rule);display:flex;justify-content:space-between;font-size:13.5px;color:var(--soft)}
+  svg text{font-family:"Segoe UI",system-ui,sans-serif}
+</style>
+</head>
+<body><div class="wrap">
+
+<header>
+  <div>
+    <div class="eyebrow">Programación Distribuida y Componentes · UBP · 2026</div>
+    <h1>Agro<span>Vision</span></h1>
+    <div class="sub">Plataforma distribuida que detecta malezas en caña de azúcar a partir de imágenes de dron, para aplicar herbicida solo donde hace falta.</div>
+  </div>
+  <div class="team"><b>Grupo Godoy · Iriarte · Lagoria</b><br>Godoy Cabrera, Santiago Abel<br>Iriarte Chamorro, Jorge Manuel<br>Lagoria, Ricardo Augusto</div>
+</header>
+
+<h2>El problema</h2>
+<div class="stats">
+  <div class="stat"><b>60 %</b><span>de la caña de azúcar del país se produce en Tucumán (IPAAT 2024)</span></div>
+  <div class="stat"><b>20–72 %</b><span>de pérdida de rendimiento por competencia de malezas</span></div>
+  <div class="stat"><b>21 t/ha</b><span>de caída documentada por pasto cubano (EEAOC)</span></div>
+  <div class="stat"><b>USD 80–150</b><span>por hectárea de herbicida sobreusado al aplicar a tasa uniforme</span></div>
+</div>
+
+<h2>Cómo lo resolvemos</h2>
+<div class="flow">
+  <div class="step"><span class="num">1</span><h3>Vuelo y subida</h3><p>El productor sube el ortomosaico GeoTIFF del lote (de cientos de MB a GB), capturado con un dron RGB.</p></div>
+  <div class="step"><span class="num">2</span><h3>Mapa navegable</h3><p>El sistema lo convierte a COG y lo sirve por teselas sobre un mapa Leaflet.</p></div>
+  <div class="step"><span class="num">3</span><h3>Análisis con IA</h3><p>El servidor recorre la imagen en celdas de 640 px con YOLOv8 y manda el progreso en vivo.</p></div>
+  <div class="step"><span class="num">4</span><h3>Decisión por sector</h3><p>Las detecciones aparecen en vivo sobre el mapa: dónde hay maleza y dónde no.</p></div>
+</div>
+
+<h2>Arquitectura actual</h2>
+<div class="arch">
+<svg viewBox="0 0 1076 230" width="1076" height="230" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#1F2A1C"/></marker>
+  </defs>
+  <rect x="10" y="78" width="170" height="80" rx="10" fill="#fff" stroke="#1F2A1C" stroke-width="1.5"/>
+  <text x="95" y="112" text-anchor="middle" font-size="17" font-weight="700">Navegador</text>
+  <text x="95" y="134" text-anchor="middle" font-size="13" fill="#56614F">productor / agrónomo</text>
+  <rect x="250" y="8" width="816" height="214" rx="14" fill="none" stroke="#9A977F" stroke-dasharray="6 5"/>
+  <text x="268" y="32" font-size="13" fill="#56614F" font-family="Consolas,monospace">HOST DOCKER · red interna</text>
+  <rect x="290" y="70" width="230" height="96" rx="10" fill="#DCE7D3" stroke="#3F6B34" stroke-width="1.5"/>
+  <text x="405" y="104" text-anchor="middle" font-size="17" font-weight="700">Nodo 1 · Front + Gateway</text>
+  <text x="405" y="127" text-anchor="middle" font-size="13.5">nginx · React · Leaflet</text>
+  <text x="405" y="149" text-anchor="middle" font-size="12.5" fill="#3F6B34" font-weight="700">puerto 8080</text>
+  <rect x="610" y="70" width="230" height="96" rx="10" fill="#DCE7D3" stroke="#3F6B34" stroke-width="1.5"/>
+  <text x="725" y="104" text-anchor="middle" font-size="17" font-weight="700">Nodo 2 · Back</text>
+  <text x="725" y="127" text-anchor="middle" font-size="13.5">FastAPI + modelo YOLOv8</text>
+  <text x="725" y="149" text-anchor="middle" font-size="12.5" fill="#3F6B34" font-weight="700">solo red interna</text>
+  <rect x="890" y="84" width="150" height="68" rx="10" fill="#fff" stroke="#56614F" stroke-width="1.5"/>
+  <text x="965" y="113" text-anchor="middle" font-size="15.5" font-weight="700">Volumen /data</text>
+  <text x="965" y="134" text-anchor="middle" font-size="12" fill="#56614F">imágenes · modelo</text>
+  <line x1="180" y1="118" x2="288" y2="118" stroke="#1F2A1C" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="234" y="108" text-anchor="middle" font-size="12.5">HTTP</text>
+  <line x1="520" y1="118" x2="608" y2="118" stroke="#1F2A1C" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="564" y="108" text-anchor="middle" font-size="12.5">/api</text>
+  <line x1="840" y1="118" x2="888" y2="118" stroke="#56614F" stroke-width="1.4" stroke-dasharray="4 4"/>
+  <text x="658" y="200" text-anchor="middle" font-size="13" fill="#56614F">Cada nodo se inicia y se detiene de forma independiente · orquestado con Docker Compose</text>
+</svg>
+</div>
+
+<h2>Ideas para cada módulo</h2>
+<div class="mods">
+  <div class="mod done"><span class="tag">E2 · INFRAESTRUCTURA</span><h4>Nodos reales e independientes</h4><p>Front + gateway y API en contenedores separados, modelo cliente-servidor y un README reproducible.</p></div>
+  <div class="mod"><span class="tag">E3 · COMUNICACIÓN</span><h4>Síncrono + asíncrono</h4><p>Sumar un canal asíncrono y evitar que dos análisis de la misma imagen se pisen.</p></div>
+  <div class="mod"><span class="tag">E4 · MIDDLEWARE</span><h4>Contratos y descubrimiento</h4><p>Contratos de la API documentados y servicios que se encuentran entre sí.</p></div>
+  <div class="mod"><span class="tag">E5 · SEGURIDAD</span><h4>Confiable ante fallas y ataques</h4><p>Login con roles, comunicación cifrada y recuperación ante caídas.</p></div>
+  <div class="mod"><span class="tag">E6 · INTEGRACIÓN</span><h4>Demo de punta a punta</h4><p>Patrones de escalabilidad, todo integrado y defensa oral.</p></div>
+  <div class="mod"><span class="tag">STACK</span><h4>Open source</h4><p>React · Leaflet · nginx · FastAPI · YOLOv8 · rasterio/COG · Docker</p></div>
+</div>
+
+<footer><span>Repositorio: github.com/RicLagoria/PTI · docs/pdc</span><span>Fuentes: IPAAT 2024 · EEAOC, Avance 2023</span></footer>
+</div></body>
+</html>
