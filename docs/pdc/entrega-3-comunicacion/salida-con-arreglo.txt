@@ -1,0 +1,10 @@
+Modo: con-arreglo | 20 trabajos encolados | 5 workers en paralelo
+Cola en: (carpeta temporal)
+
+
+Ejecuciones totales:        20 (esperadas: 20)
+Trabajos ejecutados 2+ veces: 0
+Trabajos sin ejecutar:       0
+Errores de lectura:          0
+
+RESULTADO: OK, cada trabajo se ejecutó exactamente una vez
