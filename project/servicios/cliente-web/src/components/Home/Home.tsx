@@ -1,10 +1,20 @@
 // =====================================
 // src/components/Home/Home.tsx
 // =====================================
-import { Link, Outlet, useLocation } from "react-router-dom";
-import { Navbar, NavbarBrand, NavbarContent, NavbarItem, Button } from "@heroui/react";
+import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
+import {
+  Navbar,
+  NavbarBrand,
+  NavbarContent,
+  NavbarItem,
+  Chip,
+  Dropdown,
+  DropdownTrigger,
+  DropdownMenu,
+  DropdownItem,
+} from "@heroui/react";
 import { motion } from "framer-motion";
-import { Leaf, Image, LayoutGrid, Settings2 } from "lucide-react";
+import { Leaf, Image, LayoutGrid, Settings2, UserCircle2, ChevronDown, User, LogOut } from "lucide-react";
 
 import { useAppContext } from "../../context/AppContext";
 import LoginPage from "../login/LoginPage";
@@ -16,17 +26,11 @@ const tabs = [
 ];
 
 export default function Home() {
-  const { isLoggedIn, setIsLoggedIn, username } = useAppContext();
+  const { isLoggedIn, perfil, cerrarSesion } = useAppContext();
   const location = useLocation();
+  const navegar = useNavigate();
 
-  const handleLogout = () => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("username");
-    localStorage.setItem("isLoggedIn", "false");
-    setIsLoggedIn(false);
-  };
-
-  if (!isLoggedIn) return <LoginPage />;
+  if (!isLoggedIn || !perfil) return <LoginPage />;
 
   const activeTab = tabs.find((tab) => tab.path === location.pathname) || tabs[0];
 
@@ -64,10 +68,48 @@ export default function Home() {
               </NavbarItem>
             );
           })}
+
+          {/* Quién sos + cerrar sesión, unido en un solo menú: antes eran dos
+              controles sueltos (nombre/rol + botón rojo) peleándose por el
+              mismo espacio angosto de la navbar y se veían apretados. */}
           <NavbarItem>
-            <Button color="danger" variant="flat" onClick={handleLogout} className="dark:bg-red-900 dark:text-red-100 dark:hover:bg-red-800">
-              Cerrar Sesion
-            </Button>
+            <Dropdown placement="bottom-end">
+              <DropdownTrigger>
+                <button
+                  type="button"
+                  className="flex items-center gap-2 rounded-xl py-1 pl-1 pr-2 transition-colors hover:bg-slate-100 dark:hover:bg-slate-700"
+                >
+                  {perfil.avatar_url ? (
+                    <img
+                      src={perfil.avatar_url}
+                      alt={perfil.nombre_completo}
+                      className="h-8 w-8 rounded-full border border-slate-200 object-cover dark:border-slate-600"
+                    />
+                  ) : (
+                    <UserCircle2 className="h-8 w-8 text-slate-400" />
+                  )}
+                  <span className="hidden text-sm font-semibold sm:inline">{perfil.nombre_completo}</span>
+                  <ChevronDown className="h-4 w-4 text-slate-400" />
+                </button>
+              </DropdownTrigger>
+              <DropdownMenu aria-label="Menú de usuario">
+                <DropdownItem key="rol" isReadOnly textValue="rol" description={`@${perfil.username}`} className="cursor-default">
+                  <span className="font-semibold capitalize">{perfil.rol}</span>
+                </DropdownItem>
+                <DropdownItem key="perfil" onPress={() => navegar("/settings")} startContent={<User className="h-4 w-4" />}>
+                  Ver mi perfil
+                </DropdownItem>
+                <DropdownItem
+                  key="salir"
+                  color="danger"
+                  className="text-danger"
+                  startContent={<LogOut className="h-4 w-4" />}
+                  onPress={cerrarSesion}
+                >
+                  Cerrar sesión
+                </DropdownItem>
+              </DropdownMenu>
+            </Dropdown>
           </NavbarItem>
         </NavbarContent>
       </Navbar>
@@ -84,7 +126,13 @@ export default function Home() {
             <div>
               <h1 className="text-3xl font-bold capitalize">{activeTab.label}</h1>
               <p className="text-slate-600 dark:text-slate-400">
-                Bienvenido {username ?? "administrador"}. Navega entre el dashboard, la vista de imagen y las opciones de configuracion.
+                Bienvenido {perfil.nombre_completo}
+                {perfil.rol === "admin" && (
+                  <Chip size="sm" color="warning" className="ml-2 align-middle dark:bg-amber-900 dark:text-amber-100">
+                    admin
+                  </Chip>
+                )}
+                . Navega entre el dashboard, la vista de imagen y las opciones de configuracion.
               </p>
             </div>
             <div className="rounded-2xl bg-white border border-slate-200 px-4 py-3 shadow-sm dark:bg-slate-800 dark:border-slate-700">
@@ -99,4 +147,3 @@ export default function Home() {
     </div>
   );
 }
-

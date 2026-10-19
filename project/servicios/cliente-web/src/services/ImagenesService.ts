@@ -2,6 +2,7 @@
 // src/services/ImagenesService.ts
 // =====================================
 import ApiConfig from "../config/apiConfig";
+import { conTokenEnUrl, headerAuth } from "./AuthService";
 
 export interface ImagenMeta {
   id: string;
@@ -45,25 +46,28 @@ async function manejarError(res: Response, mensajeDefault: string): Promise<neve
 }
 
 export async function listarImagenes(): Promise<ImagenMeta[]> {
-  const res = await fetch(`${ApiConfig.baseURL}/imagenes`);
+  const res = await fetch(`${ApiConfig.baseURL}/imagenes`, { headers: headerAuth() });
   if (!res.ok) return manejarError(res, "No se pudo obtener la lista de ortomosaicos.");
   return res.json();
 }
 
 export async function obtenerMetadata(id: string): Promise<ImagenMeta> {
-  const res = await fetch(`${ApiConfig.baseURL}/imagenes/${id}/metadata`);
+  const res = await fetch(`${ApiConfig.baseURL}/imagenes/${id}/metadata`, { headers: headerAuth() });
   if (!res.ok) return manejarError(res, "No se pudo obtener los metadatos del ortomosaico.");
   return res.json();
 }
 
 export function urlTeselas(id: string): string {
-  return `${ApiConfig.baseURL}/imagenes/${id}/tiles/{z}/{x}/{y}.png`;
+  // Leaflet pide esto como <img src>, no puede mandar headers: el token va en la URL.
+  return conTokenEnUrl(`${ApiConfig.baseURL}/imagenes/${id}/tiles/{z}/{x}/{y}.png`);
 }
 
 export function subirImagen(archivo: File, onProgreso: (pct: number) => void): Promise<ImagenMeta> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${ApiConfig.baseURL}/imagenes?nombre=${encodeURIComponent(archivo.name)}`);
+    const auth = headerAuth().Authorization;
+    if (auth) xhr.setRequestHeader("Authorization", auth);
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgreso(Math.round((e.loaded / e.total) * 100));
@@ -106,7 +110,9 @@ export function analizarEnVivo(
   if (opciones.cuadrante) params.set("cuadrante", String(opciones.cuadrante));
   params.set("conf", String(opciones.conf ?? 0.1));
 
-  const es = new EventSource(`${ApiConfig.baseURL}/imagenes/${id}/analizar-stream?${params.toString()}`);
+  // EventSource tampoco puede mandar headers custom: mismo truco del token en la URL.
+  const url = conTokenEnUrl(`${ApiConfig.baseURL}/imagenes/${id}/analizar-stream?${params.toString()}`);
+  const es = new EventSource(url);
 
   es.onmessage = (event) => {
     const chunk: ChunkAnalisis = JSON.parse(event.data);
