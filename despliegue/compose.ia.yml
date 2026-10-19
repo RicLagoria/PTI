@@ -20,8 +20,12 @@ services:
       - ../datos/datasets:/datos/datasets
       - ../datos/trabajos:/datos/trabajos
       - ../contratos:/contratos:ro
+    # Sin login, la API permite borrar aportes y cambiar el modelo activo: desde
+    # afuera se llega solo a través de entrenador-web (su nginx usa la red interna
+    # de compose). El puerto queda atado a 127.0.0.1 para "npm run dev" en la misma
+    # máquina o un túnel SSH al servidor, no para la red.
     ports:
-      - "8002:8002"
+      - "127.0.0.1:8002:8002"
     restart: unless-stopped
 
   ia-entrenamiento-worker:
