@@ -3,12 +3,18 @@
 // =====================================
 import React, { createContext, useContext, useState } from "react";
 import type { ReactNode } from "react";
+import {
+  cerrarSesion as cerrarSesionServicio,
+  obtenerPerfilGuardado,
+  obtenerToken,
+  type Perfil,
+} from "../services/AuthService";
 
 interface AppContextType {
   isLoggedIn: boolean;
-  setIsLoggedIn: (value: boolean) => void;
-  username: string | null;
-  setUsername: React.Dispatch<React.SetStateAction<string | null>>;
+  perfil: Perfil | null;
+  iniciarSesion: (perfil: Perfil) => void;
+  cerrarSesion: () => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -22,28 +28,26 @@ export const useAppContext = () => {
 };
 
 export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const [isLoggedIn, setIsLoggedInState] = useState<boolean>(() => {
-    return localStorage.getItem("isLoggedIn") === "true";
-  });
-  const [username, setUsername] = useState<string | null>(() => {
-    const stored = localStorage.getItem("username");
-    return stored ? stored.replace(/"/g, "") : null;
+  const [perfil, setPerfil] = useState<Perfil | null>(() => {
+    // Si hay token guardado pero no perfil (o viceversa), mejor arrancar
+    // deslogueado que mostrar datos a medias.
+    return obtenerToken() ? obtenerPerfilGuardado() : null;
   });
 
-  const setIsLoggedIn = (value: boolean) => {
-    setIsLoggedInState(value);
-    localStorage.setItem("isLoggedIn", String(value));
-    if (!value) {
-      setUsername(null);
-      localStorage.removeItem("username");
-    }
+  const iniciarSesion = (nuevoPerfil: Perfil) => {
+    setPerfil(nuevoPerfil);
   };
 
-  const value = {
-    isLoggedIn,
-    setIsLoggedIn,
-    username,
-    setUsername,
+  const cerrarSesion = () => {
+    cerrarSesionServicio();
+    setPerfil(null);
+  };
+
+  const value: AppContextType = {
+    isLoggedIn: perfil !== null,
+    perfil,
+    iniciarSesion,
+    cerrarSesion,
   };
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
