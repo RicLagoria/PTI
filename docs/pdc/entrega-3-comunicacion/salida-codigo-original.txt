@@ -1,0 +1,28 @@
+Modo: sin-arreglo | 20 trabajos encolados | 5 workers en paralelo
+Cola en: (carpeta temporal)
+
+  DUPLICADO  trabajo 05831a085de1 ejecutado 3 veces por: worker-1, worker-2, worker-3
+  DUPLICADO  trabajo 0fc4c61ed30c ejecutado 2 veces por: worker-4, worker-5
+  DUPLICADO  trabajo 2174f01fdc4b ejecutado 2 veces por: worker-2, worker-4
+  DUPLICADO  trabajo 23eb56c76715 ejecutado 3 veces por: worker-2, worker-4, worker-5
+  DUPLICADO  trabajo 2886befdf1bc ejecutado 2 veces por: worker-4, worker-5
+  DUPLICADO  trabajo 29bb58231121 ejecutado 3 veces por: worker-1, worker-3, worker-5
+  DUPLICADO  trabajo 3da4b163df8e ejecutado 5 veces por: worker-1, worker-2, worker-3, worker-4, worker-5
+  DUPLICADO  trabajo 4b7ff519efd3 ejecutado 2 veces por: worker-1, worker-3
+  DUPLICADO  trabajo 505d69d91c4a ejecutado 2 veces por: worker-2, worker-4
+  DUPLICADO  trabajo 68bb0ba7b96f ejecutado 3 veces por: worker-1, worker-3, worker-5
+  DUPLICADO  trabajo b2a1cbe5545e ejecutado 5 veces por: worker-1, worker-2, worker-3, worker-4, worker-5
+  DUPLICADO  trabajo c81f7c46b0f0 ejecutado 2 veces por: worker-2, worker-4
+  DUPLICADO  trabajo e5ee9a0aa3c3 ejecutado 4 veces por: worker-1, worker-3, worker-4, worker-5
+  DUPLICADO  trabajo ecbb352189f9 ejecutado 2 veces por: worker-1, worker-3
+  DUPLICADO  trabajo f8202adf31b3 ejecutado 4 veces por: worker-1, worker-2, worker-4, worker-5
+  DUPLICADO  trabajo fc52d63f5eb2 ejecutado 5 veces por: worker-1, worker-2, worker-3, worker-4, worker-5
+  DUPLICADO  trabajo fe43127e9f9c ejecutado 3 veces por: worker-1, worker-2, worker-3
+  ERROR      worker-2: JSONDecodeError: Expecting value: line 1 column 1 (char 0)
+
+Ejecuciones totales:        55 (esperadas: 20)
+Trabajos ejecutados 2+ veces: 17
+Trabajos sin ejecutar:       0
+Errores de lectura:          1
+
+RESULTADO: FALLA, hay trabajos repetidos, perdidos o lecturas corruptas

@@ -1,4 +1,6 @@
+import os
 import shutil
+import socket
 import sys
 import time
 from pathlib import Path
@@ -22,8 +24,8 @@ METRICAS_POR_EPOCA = {
 
 def ejecutar_un_trabajo(trabajo: dict):
     trabajo_id = trabajo["id"]
+    # El trabajo ya llega en "ejecutando": lo marcó reclamar_siguiente_pendiente()
     print(f"[WORKER] Iniciando entrenamiento para trabajo {trabajo_id}...")
-    trabajos.actualizar_trabajo(trabajo_id, estado="ejecutando")
 
     epocas = trabajo.get("epocas", 50)
     imgsz = trabajo.get("imgsz", 640)
@@ -128,9 +130,11 @@ def ejecutar_un_trabajo(trabajo: dict):
 
 
 def bucle_worker():
-    print("[WORKER] Servicio worker de entrenamiento iniciado. Esperando trabajos...")
+    # Identifica a esta réplica cuando se levantan varias (docker compose --scale)
+    nombre_worker = f"{socket.gethostname()}-{os.getpid()}"
+    print(f"[WORKER] Worker {nombre_worker} iniciado. Esperando trabajos...")
     while True:
-        trabajo = trabajos.obtener_siguiente_pendiente()
+        trabajo = trabajos.reclamar_siguiente_pendiente(nombre_worker)
         if trabajo:
             ejecutar_un_trabajo(trabajo)
         else:
