@@ -28,12 +28,12 @@ Backend en Python 3.9 (la imagen de Docker usa `python:3.9-slim`). No hay tests 
 ```bash
 # Todo el MVP con Docker (front React + back detrás de nginx): http://localhost:8080
 # Requiere los pesos en project/mvp/data/modelo/best.pt
-cd project/mvp && mkdir -p data/modelo && cp train-3/weights/best.pt data/modelo/
+cd project/mvp && mkdir -p data/modelo && cp ../servicios/ia-entrenamiento/semilla/train-3/weights/best.pt data/modelo/
 cd project/mvp && docker compose up --build
 
 # Backend sin Docker — debe ejecutarse desde project/mvp/back (rutas relativas al cwd)
 pip install -r project/mvp/back/requirements.txt
-cd project/mvp/back && MODEL_PATH=../train-3/weights/best.pt uvicorn server:app --reload --port 8000
+cd project/mvp/back && MODEL_PATH=../../servicios/ia-entrenamiento/semilla/train-3/weights/best.pt uvicorn server:app --reload --port 8000
 
 # Front sin Docker (Vite reenvía /api a http://localhost:8000)
 cd project/mvp/front-react && npm install && npm run dev
@@ -119,7 +119,7 @@ React 19 + TypeScript + Vite, con HeroUI, Tailwind 4, `react-router-dom` y `reac
 
 ## Modelo y dataset
 
-YOLOv8n de detección. La corrida versionada es `project/mvp/train-3/` (pesos, `args.yaml`, `results.csv` y curvas), entrenada en CPU con `epochs=50`, `imgsz=640`, `batch=2`. Sus clases, en orden de índice: `maleza`, `falla`, `camino`, `lodazal`.
+YOLOv8n de detección. La corrida versionada es `project/servicios/ia-entrenamiento/semilla/train-3/` (pesos, `args.yaml`, `results.csv` y curvas), que `ia-entrenamiento` publica como primera versión del registro si arranca vacío, entrenada en CPU con `epochs=50`, `imgsz=640`, `batch=2`. Sus clases, en orden de índice: `maleza`, `falla`, `camino`, `lodazal`.
 
 El dataset no está en el repo: `args.yaml` apunta a una carpeta local de quien entrenó. `project/mvp/entrenador yolov8/train.py` es el script de entrenamiento y espera `Dataset/dataset.yaml` y `yolov8n.pt` en el directorio de trabajo.
 
