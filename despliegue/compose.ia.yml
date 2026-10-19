@@ -40,3 +40,10 @@ services:
       - ia-entrenamiento-api
     restart: unless-stopped
 
+  entrenador-web:
+    build: ../project/servicios/entrenador-web
+    ports:
+      - "8003:80"
+    depends_on:
+      - ia-entrenamiento-api
+    restart: unless-stopped
