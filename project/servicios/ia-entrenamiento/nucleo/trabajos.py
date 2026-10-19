@@ -60,7 +60,9 @@ def encolar_trabajo(datasets: List[str], epocas: int = 50, imgsz: int = 640, pes
     trabajo = {
         "id": trabajo_id,
         "estado": "pendiente",  # pendiente, ejecutando, completado, fallido
-        "fecha_creacion": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        # Con microsegundos: es la clave de orden de la cola, y con precisión de segundos
+        # varios trabajos encolados juntos empataban y se tomaba primero el más nuevo
+        "fecha_creacion": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
         "datasets": datasets,
         "epocas": epocas,
         "imgsz": imgsz,
