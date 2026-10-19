@@ -1,8 +1,34 @@
+import csv
 import json
 import os
+import re
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
+
+# Pesos de partida oficiales de Ultralytics que se aceptan en un entrenamiento.
+# Cualquier otra cosa tiene que ser una versión del registro: pesos_base llega
+# en el request y YOLO() abre los .pt con pickle (y descarga URLs), así que un
+# valor libre permitiría ejecutar código en el worker.
+PESOS_BASE_OFICIALES = ("yolov8n.pt",)
+
+# Las versiones se usan como nombre de carpeta y llegan en las URLs
+NOMBRE_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+CARPETA_ACTIVO = "activo"
+
+# Archivos de una corrida de Ultralytics que se guardan con cada versión
+ARCHIVOS_DE_CORRIDA = (
+    "results.csv",
+    "results.png",
+    "args.yaml",
+    "confusion_matrix.png",
+    "confusion_matrix_normalized.png",
+    "BoxPR_curve.png",
+    "BoxF1_curve.png",
+    "BoxP_curve.png",
+    "BoxR_curve.png",
+)
 
 
 def _obtener_dir_modelos() -> Path:
@@ -30,14 +56,35 @@ def _obtener_dir_modelos() -> Path:
 MODELOS_DIR = _obtener_dir_modelos()
 
 
+def es_version_valida(version: str) -> bool:
+    return bool(NOMBRE_VERSION.match(version or "")) and version != CARPETA_ACTIVO
+
+
+def carpeta_version(version: str) -> Optional[Path]:
+    """Carpeta de una versión publicada, o None si el nombre no es válido o no existe."""
+    if not es_version_valida(version):
+        return None
+    carpeta = MODELOS_DIR / version
+    return carpeta if (carpeta / "best.pt").is_file() else None
+
+
+def version_activa() -> Optional[str]:
+    archivo = MODELOS_DIR / CARPETA_ACTIVO / "version.txt"
+    if archivo.is_file():
+        return archivo.read_text(encoding="utf-8").strip() or None
+    return None
+
+
 def listar_modelos() -> List[Dict]:
     """Lista las versiones registradas de modelos."""
     if not MODELOS_DIR.is_dir():
         return []
 
+    activa = version_activa()
     modelos = []
     for d in sorted(MODELOS_DIR.iterdir()):
-        if d.is_dir() and d.name != "activo":
+        # Las carpetas que empiezan con "." son publicaciones a medio copiar
+        if d.is_dir() and d.name != CARPETA_ACTIVO and not d.name.startswith("."):
             meta_file = d / "meta.json"
             best_pt = d / "best.pt"
             if best_pt.is_file():
@@ -50,7 +97,7 @@ def listar_modelos() -> List[Dict]:
                         pass
                 modelos.append({
                     "version": d.name,
-                    "activo": (MODELOS_DIR / "activo" / "version.txt").read_text().strip() == d.name if (MODELOS_DIR / "activo" / "version.txt").is_file() else False,
+                    "activo": d.name == activa,
                     "tamano_mb": round(best_pt.stat().st_size / (1024 * 1024), 2),
                     "meta": meta
                 })
@@ -59,35 +106,128 @@ def listar_modelos() -> List[Dict]:
 
 
 def ruta_pesos_activos() -> Optional[Path]:
-    activo_pt = MODELOS_DIR / "activo" / "best.pt"
-    if activo_pt.is_file():
-        return activo_pt
+    # Sin versión activa no se sirve ninguna: elegir una al azar podría poner en
+    # producción una corrida que nadie revisó. La activación es siempre explícita.
+    activo_pt = MODELOS_DIR / CARPETA_ACTIVO / "best.pt"
+    return activo_pt if activo_pt.is_file() else None
 
-    # Fallback al primer modelo disponible o train-3 si existe
-    candidatos = list(MODELOS_DIR.glob("*/best.pt"))
-    if candidatos:
-        return candidatos[0]
-    return None
+
+def resolver_pesos_base(nombre: str) -> Optional[str]:
+    """Ruta (o nombre oficial) de los pesos de partida, o None si no está permitido."""
+    if nombre in PESOS_BASE_OFICIALES:
+        return nombre
+    carpeta = carpeta_version(nombre)
+    return str(carpeta / "best.pt") if carpeta else None
 
 
 def activar_modelo(version: str) -> bool:
     """Activa una versión copiando sus pesos a datos/modelos/activo/best.pt de forma atómica."""
-    carpeta_version = MODELOS_DIR / version
-    pesos_origen = carpeta_version / "best.pt"
-    if not pesos_origen.is_file():
+    carpeta = carpeta_version(version)
+    if carpeta is None:
         return False
 
-    carpeta_activo = MODELOS_DIR / "activo"
+    carpeta_activo = MODELOS_DIR / CARPETA_ACTIVO
     carpeta_activo.mkdir(parents=True, exist_ok=True)
 
-    destino_pt = carpeta_activo / "best.pt"
-    destino_temp = carpeta_activo / "best.pt.tmp"
+    # os.replace es atómico: ia-inferencia nunca ve el archivo a medio copiar ni ausente
+    temporal = carpeta_activo / "best.pt.tmp"
+    shutil.copy2(carpeta / "best.pt", temporal)
+    os.replace(temporal, carpeta_activo / "best.pt")
 
-    shutil.copy2(pesos_origen, destino_temp)
-    if destino_pt.exists():
-        destino_pt.unlink()
-    destino_temp.rename(destino_pt)
-
-    (carpeta_activo / "version.txt").write_text(version, encoding="utf-8")
+    temporal_version = carpeta_activo / "version.txt.tmp"
+    temporal_version.write_text(version, encoding="utf-8")
+    os.replace(temporal_version, carpeta_activo / "version.txt")
     return True
 
+
+def leer_metricas(results_csv: Path) -> Dict:
+    """
+    Métricas de la época que Ultralytics guardó como best.pt: la de mayor
+    fitness, que para detección es 0.1 * mAP50 + 0.9 * mAP50-95.
+    """
+    try:
+        with open(results_csv, "r", encoding="utf-8") as f:
+            # Algunas versiones de Ultralytics rellenan los encabezados con espacios
+            filas = [{k.strip(): v.strip() for k, v in fila.items()} for fila in csv.DictReader(f)]
+        if not filas:
+            return {}
+
+        def valor(fila: Dict, columna: str) -> float:
+            return float(fila.get(columna) or 0)
+
+        mejor = max(filas, key=lambda f: 0.1 * valor(f, "metrics/mAP50(B)") + 0.9 * valor(f, "metrics/mAP50-95(B)"))
+        return {
+            "epoca_mejor": int(valor(mejor, "epoch")),
+            "epocas_entrenadas": len(filas),
+            "precision": round(valor(mejor, "metrics/precision(B)"), 4),
+            "recall": round(valor(mejor, "metrics/recall(B)"), 4),
+            "map50": round(valor(mejor, "metrics/mAP50(B)"), 4),
+            "map50_95": round(valor(mejor, "metrics/mAP50-95(B)"), 4),
+        }
+    except (OSError, ValueError, KeyError):
+        return {}
+
+
+def publicar_version(version: str, carpeta_corrida: Path, meta: Dict) -> Dict:
+    """
+    Copia una corrida de Ultralytics al registro como versión nueva: best.pt,
+    results.csv, curvas y un meta.json con las métricas. No la activa.
+    """
+    if not es_version_valida(version):
+        raise ValueError(f"Nombre de versión inválido: {version!r}")
+    destino = MODELOS_DIR / version
+    if destino.exists():
+        raise ValueError(f"La versión {version} ya existe en el registro.")
+    pesos = carpeta_corrida / "weights" / "best.pt"
+    if not pesos.is_file():
+        raise ValueError(f"La corrida no generó weights/best.pt (se buscó en {carpeta_corrida}).")
+
+    temporal = MODELOS_DIR / f".publicando-{version}"
+    shutil.rmtree(temporal, ignore_errors=True)
+    temporal.mkdir(parents=True)
+    try:
+        shutil.copy2(pesos, temporal / "best.pt")
+        for nombre in ARCHIVOS_DE_CORRIDA:
+            if (carpeta_corrida / nombre).is_file():
+                shutil.copy2(carpeta_corrida / nombre, temporal / nombre)
+
+        meta_completo = {
+            "version": version,
+            "fecha_creacion": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            **meta,
+            "metricas": leer_metricas(temporal / "results.csv"),
+        }
+        with open(temporal / "meta.json", "w", encoding="utf-8") as f:
+            json.dump(meta_completo, f, indent=2, ensure_ascii=False)
+
+        temporal.rename(destino)
+        return meta_completo
+    except BaseException:
+        shutil.rmtree(temporal, ignore_errors=True)
+        raise
+
+
+def sembrar_si_vacio(carpeta_semilla: Path, clases_canonicas: List[str]) -> Optional[str]:
+    """
+    En una instalación nueva el registro está vacío e ia-inferencia no tiene
+    modelo. Si es así, publica la corrida semilla (train-3) como primera versión
+    y la activa. Devuelve el nombre de la versión sembrada, o None.
+    """
+    if listar_modelos() or not (carpeta_semilla / "weights" / "best.pt").is_file():
+        return None
+
+    # Las clases de la semilla vienen anotadas al lado de los pesos; si ya no
+    # coinciden con el principio de la lista canónica, sus índices significan
+    # otra cosa y no se puede usar.
+    archivo_clases = carpeta_semilla / "clases.json"
+    clases = json.loads(archivo_clases.read_text(encoding="utf-8")) if archivo_clases.is_file() else None
+    if not clases or clases_canonicas[:len(clases)] != clases:
+        print(f"[REGISTRO] No se siembra {carpeta_semilla.name}: sus clases {clases} "
+              f"no son compatibles con las canónicas {clases_canonicas}.")
+        return None
+
+    version = carpeta_semilla.name
+    publicar_version(version, carpeta_semilla, {"origen": "semilla", "clases": clases})
+    if version_activa() is None:
+        activar_modelo(version)
+    return version

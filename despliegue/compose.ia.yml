@@ -35,6 +35,7 @@ services:
       - ../datos/modelos:/datos/modelos
       - ../datos/datasets:/datos/datasets
       - ../datos/trabajos:/datos/trabajos
+      - ../contratos:/contratos:ro
     depends_on:
       - ia-entrenamiento-api
     restart: unless-stopped

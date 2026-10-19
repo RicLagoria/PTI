@@ -1,13 +1,16 @@
 import asyncio
 import json
+import os
 import sys
+import tempfile
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 # Permitir importar desde nucleo
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "nucleo"))
@@ -16,8 +19,26 @@ import clases
 import datasets
 import registro
 import trabajos
+from conversion_labelme import ErrorAporte
 
-app = FastAPI(title="AgroVision - IA Entrenamiento API", version="1.0.0")
+MAX_DATASET_MB = int(os.environ.get("MAX_DATASET_MB", "2048"))
+
+# Corrida que se publica como primera versión si el registro está vacío
+SEMILLA_DIR = Path(os.environ.get(
+    "MODELO_SEMILLA_DIR",
+    Path(__file__).resolve().parent.parent / "semilla" / "train-3",
+))
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    version = registro.sembrar_si_vacio(SEMILLA_DIR, clases.obtener_clases_canonicas())
+    if version:
+        print(f"[REGISTRO] Registro vacío: se publicó y activó la semilla {version}.")
+    yield
+
+
+app = FastAPI(title="AgroVision - IA Entrenamiento API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -29,9 +50,9 @@ app.add_middleware(
 
 
 class SolicitudEntrenamiento(BaseModel):
-    datasets: List[str]
-    epocas: int = 50
-    imgsz: int = 640
+    datasets: List[str] = Field(..., min_length=1)
+    epocas: int = Field(50, ge=1, le=300)
+    imgsz: int = Field(640, ge=320, le=1280, multiple_of=32)
     pesos_base: str = "yolov8n.pt"
 
 
@@ -51,20 +72,38 @@ def listar_datasets():
     return datasets.listar_datasets()
 
 
+# Sin async: la conversión lee y escribe cada imagen, y en un endpoint async
+# bloquearía el event loop (y con él los streams de entrenamiento) mientras dura.
 @app.post("/datasets", status_code=201)
-async def subir_dataset(archivo: UploadFile = File(...)):
-    if not archivo.filename.lower().endswith(".zip"):
+def subir_dataset(archivo: UploadFile = File(...), nombre: Optional[str] = Form(None)):
+    if not (archivo.filename or "").lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="El dataset debe ser un archivo ZIP.")
 
-    contenido = await archivo.read()
-    if not contenido:
-        raise HTTPException(status_code=400, detail="Archivo vacío.")
+    nombre_final = (nombre or "").strip() or Path(archivo.filename).stem
+    maximo = MAX_DATASET_MB * 1024 * 1024
 
-    try:
-        meta = datasets.guardar_dataset_zip(contenido, archivo.filename)
-        return meta
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error procesando dataset: {e}")
+    # Se copia a un archivo temporal propio, por partes y sin cargarlo en memoria.
+    # No alcanza con pasarle archivo.file a zipfile: en Python 3.9 el
+    # SpooledTemporaryFile de Starlette no tiene seekable() y zipfile lo exige.
+    datasets.DATASETS_DIR.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryFile(dir=datasets.DATASETS_DIR) as copia:
+        tamano = 0
+        while True:
+            parte = archivo.file.read(1024 * 1024)
+            if not parte:
+                break
+            tamano += len(parte)
+            if tamano > maximo:
+                raise HTTPException(status_code=413, detail=f"El ZIP supera el máximo de {MAX_DATASET_MB} MB.")
+            copia.write(parte)
+        if tamano == 0:
+            raise HTTPException(status_code=400, detail="Archivo vacío.")
+        copia.seek(0)
+
+        try:
+            return datasets.guardar_dataset_zip(copia, nombre_final, archivo.filename)
+        except ErrorAporte as e:
+            raise HTTPException(status_code=400, detail=e.detalle)
 
 
 @app.delete("/datasets/{id}", status_code=204)
@@ -81,8 +120,22 @@ def listar_entrenamientos():
 
 @app.post("/entrenamientos", status_code=202)
 def crear_entrenamiento(solicitud: SolicitudEntrenamiento):
+    ids = list(dict.fromkeys(solicitud.datasets))
+    inexistentes = [i for i in ids if datasets.carpeta_de(i) is None]
+    if inexistentes:
+        raise HTTPException(status_code=400, detail={
+            "mensaje": "Hay datasets que no existen.",
+            "datasets_inexistentes": inexistentes,
+        })
+
+    if registro.resolver_pesos_base(solicitud.pesos_base) is None:
+        raise HTTPException(status_code=400, detail={
+            "mensaje": f"Pesos de partida no permitidos: {solicitud.pesos_base}",
+            "pesos_base_validos": list(registro.PESOS_BASE_OFICIALES) + [m["version"] for m in registro.listar_modelos()],
+        })
+
     trabajo = trabajos.encolar_trabajo(
-        datasets=solicitud.datasets,
+        datasets=ids,
         epocas=solicitud.epocas,
         imgsz=solicitud.imgsz,
         pesos_base=solicitud.pesos_base
@@ -135,4 +188,3 @@ def activar_modelo(v: str):
     if not exito:
         raise HTTPException(status_code=404, detail=f"No se encontró la versión {v} o no tiene pesos válidos.")
     return {"mensaje": f"Modelo {v} activado correctamente."}
-

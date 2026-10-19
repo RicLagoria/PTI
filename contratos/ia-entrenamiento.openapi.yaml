@@ -67,7 +67,36 @@ paths:
               schema:
                 type: object
         '400':
-          description: Error de validación o clases desconocidas
+          description: >
+            El aporte no se puede usar y no se guardó nada. Además de `mensaje`,
+            trae `clases_desconocidas` (etiqueta -> cantidad) o `errores` (un
+            texto por archivo), según el caso.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  detail:
+                    type: object
+                    properties:
+                      mensaje:
+                        type: string
+                      clases_desconocidas:
+                        type: object
+                        additionalProperties:
+                          type: integer
+                      clases_validas:
+                        type: array
+                        items:
+                          type: string
+                      errores:
+                        type: array
+                        items:
+                          type: string
+                      errores_omitidos:
+                        type: integer
+        '413':
+          description: El ZIP supera MAX_DATASET_MB
 
   /datasets/{id}:
     delete:
@@ -115,15 +144,25 @@ paths:
                 epocas:
                   type: integer
                   default: 50
+                  minimum: 1
+                  maximum: 300
                 imgsz:
                   type: integer
                   default: 640
+                  minimum: 320
+                  maximum: 1280
+                  multipleOf: 32
                 pesos_base:
                   type: string
                   default: "yolov8n.pt"
+                  description: "yolov8n.pt o el nombre de una versión del registro"
       responses:
         '202':
           description: Entrenamiento encolado
+        '400':
+          description: >
+            Algún dataset no existe (`datasets_inexistentes`) o los pesos de
+            partida no están permitidos (`pesos_base_validos`).
 
   /entrenamientos/{id}/stream:
     get:
