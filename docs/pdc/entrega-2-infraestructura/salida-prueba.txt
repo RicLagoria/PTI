@@ -1,0 +1,20 @@
+== 0) Estado inicial
+back: running
+front: running
+front /            -> 200
+front /api/imagenes -> 200
+== 1) Detengo SOLO la API: el front sigue sirviendo, /api devuelve 502
+back: exited
+front: running
+front /            -> 200
+front /api/imagenes -> 502
+== 2) Levanto la API sin tocar el front
+front /api/imagenes -> 200 (la API volvió)
+== 3) Detengo SOLO el front: la API sigue viva en la red interna
+back: running
+front: exited
+desde afuera :8080 -> 000 (000 = sin respuesta)
+API por dentro      -> 200
+== 4) Levanto el front de nuevo
+front /            -> 200
+front /api/imagenes -> 200

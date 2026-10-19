@@ -1,0 +1,64 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: agrovision
+      POSTGRES_PASSWORD: agrovision
+      POSTGRES_DB: agrovision
+    volumes:
+      - ../datos/db:/var/lib/postgresql/data
+      - ../project/servicios/base-datos/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"  # expuesto solo acá (dev); en compose.cliente.yml no sale del todo
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agrovision"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  ia-inferencia:
+    build: ../project/servicios/ia-inferencia
+    environment:
+      MODEL_PATH: /datos/modelos/activo/best.pt
+    volumes:
+      - ../datos/modelos:/datos/modelos:ro
+    ports:
+      - "8001:8001"
+    restart: unless-stopped
+
+  cliente-api:
+    build: ../project/servicios/cliente-api
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      IA_INFERENCIA_URL: http://ia-inferencia:8001
+      UPLOAD_DIR: /datos/ortomosaicos
+      MAX_UPLOAD_MB: 8192
+      TAMANO_LOTE_MAX: 4
+      DATABASE_URL: postgresql://agrovision:agrovision@db:5432/agrovision
+      JWT_SECRET: ${JWT_SECRET:-agrovision-dev-secret-cambiar-en-produccion}
+      FRONTEND_ORIGIN: http://localhost:8080
+    volumes:
+      - ../datos/ortomosaicos:/datos/ortomosaicos
+    ports:
+      - "8000:8000"
+    depends_on:
+      ia-inferencia:
+        condition: service_started
+      db:
+        condition: service_healthy
+    networks:
+      default:
+        aliases:
+          - back
+          - cliente-api
+    restart: unless-stopped
+
+  cliente-web:
+    build: ../project/servicios/cliente-web
+    ports:
+      - "8080:80"
+    depends_on:
+      - cliente-api
+    restart: unless-stopped
+

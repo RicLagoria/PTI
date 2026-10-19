@@ -1,0 +1,11 @@
+{
+  "name": "@pti/ts-api",
+  "version": "1.0.0",
+  "description": "Tipos TypeScript compartidos generados de los contratos de la API",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  }
+}
+
