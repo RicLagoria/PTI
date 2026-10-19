@@ -1,0 +1,16 @@
+# --- Servidor Web FastAPI ---
+fastapi==0.128.8
+uvicorn==0.39.0
+starlette==0.49.3
+pydantic==2.13.4
+httpx>=0.27.0
+
+# --- Lectura Geoespacial y Teselas Dinámicas (COG) ---
+rasterio==1.4.3
+rio-tiler==7.9.6
+
+# --- Procesamiento de Imágenes ---
+opencv-python==5.0.0.93
+numpy==2.0.2
+pillow==11.3.0
+

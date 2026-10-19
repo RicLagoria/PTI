@@ -1,0 +1,28 @@
+services:
+  cliente-api:
+    build: ../project/servicios/cliente-api
+    user: "${UID:-1000}:${GID:-1000}"
+    environment:
+      IA_INFERENCIA_URL: "${IA_INFERENCIA_URL:-http://localhost:8001}"
+      UPLOAD_DIR: /datos/ortomosaicos
+      MAX_UPLOAD_MB: 8192
+      TAMANO_LOTE_MAX: 4
+    volumes:
+      - ../datos/ortomosaicos:/datos/ortomosaicos
+    ports:
+      - "8000:8000"
+    networks:
+      default:
+        aliases:
+          - back
+          - cliente-api
+    restart: unless-stopped
+
+  cliente-web:
+    build: ../project/servicios/cliente-web
+    ports:
+      - "8080:80"
+    depends_on:
+      - cliente-api
+    restart: unless-stopped
+

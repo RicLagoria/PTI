@@ -11,7 +11,16 @@ import rasterio.shutil
 from rasterio.errors import RasterioIOError
 from rio_tiler.io import Reader
 
-UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", "data/imagenes"))
+def _obtener_upload_dir() -> Path:
+    env_dir = os.environ.get("UPLOAD_DIR")
+    if env_dir:
+        return Path(env_dir)
+    if Path("../data").is_dir():
+        return Path("../data/imagenes")
+    return Path("data/imagenes")
+
+
+UPLOAD_DIR = _obtener_upload_dir()
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_MB", "8192")) * 1024 * 1024
 
 EXTENSIONES_VALIDAS = (".tif", ".tiff")
