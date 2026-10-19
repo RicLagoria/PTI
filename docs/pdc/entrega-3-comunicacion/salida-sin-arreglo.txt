@@ -1,0 +1,24 @@
+Modo: sin-arreglo | 20 trabajos encolados | 5 workers en paralelo
+Cola en: (carpeta temporal)
+
+  DUPLICADO  trabajo 12a4cfcb2e03 ejecutado 3 veces por: worker-1, worker-2, worker-3
+  DUPLICADO  trabajo 2d02355f88d6 ejecutado 2 veces por: worker-4, worker-5
+  DUPLICADO  trabajo 3562c4571ff1 ejecutado 2 veces por: worker-1, worker-2
+  DUPLICADO  trabajo 5a00fe56392a ejecutado 5 veces por: worker-1, worker-2, worker-3, worker-4, worker-5
+  DUPLICADO  trabajo 5c5b3e463f57 ejecutado 2 veces por: worker-4, worker-5
+  DUPLICADO  trabajo 752c4c478c74 ejecutado 3 veces por: worker-1, worker-2, worker-3
+  DUPLICADO  trabajo 801b77937137 ejecutado 3 veces por: worker-1, worker-2, worker-5
+  DUPLICADO  trabajo 850caaba8746 ejecutado 4 veces por: worker-1, worker-2, worker-4, worker-5
+  DUPLICADO  trabajo b8d61e1f2cc3 ejecutado 4 veces por: worker-2, worker-3, worker-4, worker-5
+  DUPLICADO  trabajo d1567979b20d ejecutado 2 veces por: worker-4, worker-5
+  DUPLICADO  trabajo e05065046304 ejecutado 2 veces por: worker-1, worker-4
+  DUPLICADO  trabajo f04df7acb38a ejecutado 2 veces por: worker-2, worker-5
+  DUPLICADO  trabajo f26a3880219a ejecutado 2 veces por: worker-4, worker-5
+  DUPLICADO  trabajo f5c573000a9f ejecutado 3 veces por: worker-1, worker-2, worker-3
+
+Ejecuciones totales:        45 (esperadas: 20)
+Trabajos ejecutados 2+ veces: 14
+Trabajos sin ejecutar:       0
+Errores de lectura:          0
+
+RESULTADO: FALLA, hay trabajos repetidos, perdidos o lecturas corruptas

@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +31,27 @@ def _obtener_dir_trabajos() -> Path:
 TRABAJOS_DIR = _obtener_dir_trabajos()
 
 
+def _escribir_json_atomico(ruta: Path, data: Dict) -> None:
+    """
+    Escribe el JSON en un temporal y lo renombra encima del original. El renombrado es
+    atómico: quien lea el archivo (la API mandando el progreso, otro worker buscando
+    pendientes) ve la versión anterior completa o la nueva completa, nunca una a medias.
+    """
+    temporal = ruta.with_name(f".{ruta.name}.{uuid.uuid4().hex}.tmp")
+    with open(temporal, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    # En Windows el renombrado falla si otro proceso tiene el destino abierto en ese
+    # instante; se reintenta. En Linux (Docker) reemplaza aunque esté abierto.
+    for intento in range(50):
+        try:
+            os.replace(temporal, ruta)
+            return
+        except PermissionError:
+            if intento == 49:
+                raise
+            time.sleep(0.01)
+
+
 def encolar_trabajo(datasets: List[str], epocas: int = 50, imgsz: int = 640, pesos_base: str = "yolov8n.pt") -> Dict:
     TRABAJOS_DIR.mkdir(parents=True, exist_ok=True)
     trabajo_id = uuid.uuid4().hex[:12]
@@ -49,8 +71,7 @@ def encolar_trabajo(datasets: List[str], epocas: int = 50, imgsz: int = 640, pes
         "error": None
     }
 
-    with open(archivo_trabajo, "w", encoding="utf-8") as f:
-        json.dump(trabajo, f, indent=2)
+    _escribir_json_atomico(archivo_trabajo, trabajo)
 
     return trabajo
 
@@ -90,16 +111,47 @@ def actualizar_trabajo(trabajo_id: str, **kwargs) -> Optional[Dict]:
 
     data.update(kwargs)
 
-    with open(archivo, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    _escribir_json_atomico(archivo, data)
 
     return data
 
 
 def obtener_siguiente_pendiente() -> Optional[Dict]:
+    """
+    Solo consulta: no reserva el trabajo. Con más de un worker, dos pueden recibir el
+    mismo pendiente; para tomar un trabajo usar reclamar_siguiente_pendiente().
+    """
     pendientes = [t for t in listar_trabajos() if t["estado"] == "pendiente"]
     if pendientes:
         # El más antiguo primero
         return sorted(pendientes, key=lambda x: x["fecha_creacion"])[0]
     return None
 
+
+def reclamar_trabajo(trabajo_id: str, worker: str) -> bool:
+    """
+    Intenta quedarse con un trabajo creando su archivo .lock en modo exclusivo (O_EXCL):
+    el sistema operativo garantiza que, si varios workers lo intentan a la vez, solo uno
+    lo crea. Retorna True si este worker lo reclamó y False si ya era de otro.
+    """
+    lock = TRABAJOS_DIR / f"{trabajo_id}.lock"
+    try:
+        fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(worker)
+    return True
+
+
+def reclamar_siguiente_pendiente(worker: str) -> Optional[Dict]:
+    """
+    Toma el pendiente más antiguo que ningún otro worker haya reclamado y lo marca como
+    "ejecutando". Reemplaza al par obtener_siguiente_pendiente() + actualizar_trabajo(),
+    que dejaba una ventana en la que dos workers tomaban el mismo trabajo.
+    """
+    pendientes = [t for t in listar_trabajos() if t["estado"] == "pendiente"]
+    for trabajo in sorted(pendientes, key=lambda x: x["fecha_creacion"]):
+        if reclamar_trabajo(trabajo["id"], worker):
+            return actualizar_trabajo(trabajo["id"], estado="ejecutando", worker=worker)
+    return None
