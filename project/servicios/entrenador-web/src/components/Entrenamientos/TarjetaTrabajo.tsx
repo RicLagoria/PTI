@@ -36,6 +36,12 @@ export default function TarjetaTrabajo({
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-400">
             {fecha(trabajo.fecha_creacion)} · {trabajo.epocas} épocas · imgsz {trabajo.imgsz} · desde {trabajo.pesos_base}
+            {trabajo.worker && (
+              <>
+                {" "}
+                · worker <span className="font-mono">{trabajo.worker}</span>
+              </>
+            )}
           </p>
         </div>
         <Chip size="sm" variant="flat" color={estado.color}>
@@ -54,10 +60,10 @@ export default function TarjetaTrabajo({
 
       {trabajo.estado === "pendiente" && (
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          {/* El worker revisa la cola cada 5 segundos */}
+          {/* Cada worker libre revisa la cola cada 5 segundos */}
           {posicionEnCola && posicionEnCola > 1
-            ? `Tiene ${plural(posicionEnCola - 1, "entrenamiento")} adelante.`
-            : "Arranca en unos segundos."}
+            ? `Tiene ${plural(posicionEnCola - 1, "entrenamiento")} adelante en la cola.`
+            : "Es el próximo: arranca en cuanto haya un worker libre."}
         </p>
       )}
 

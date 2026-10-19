@@ -47,6 +47,8 @@ export interface Trabajo {
   metricas: Metricas;
   version_generada: string | null;
   error: string | null;
+  /** Réplica del worker que lo reclamó (hostname-pid); falta mientras está en cola */
+  worker?: string;
 }
 
 export interface Modelo {

@@ -84,10 +84,11 @@ export default function Entrenamientos() {
   const epocasValidas = Number.isInteger(epocasNumero) && epocasNumero >= 1 && epocasNumero <= 300;
   const puedeEnviar = elegidos.length > 0 && imagenesElegidas >= 2 && epocasValidas && !enviando;
 
-  // La cola atiende primero al más viejo: la posición sale de ordenar los pendientes por fecha
+  // Los workers reclaman primero el pendiente más viejo: la posición sale de ordenar
+  // los pendientes por fecha. Los que ya están corriendo no cuentan, porque con
+  // varios workers no necesariamente hay que esperarlos.
   const pendientes = trabajos.filter((t) => t.estado === "pendiente").sort((a, b) => a.fecha_creacion.localeCompare(b.fecha_creacion));
-  const enCurso = trabajos.some((t) => t.estado === "ejecutando");
-  const posicion = (t: Trabajo) => pendientes.findIndex((p) => p.id === t.id) + 1 + (enCurso ? 1 : 0);
+  const posicion = (t: Trabajo) => pendientes.findIndex((p) => p.id === t.id) + 1;
   const ordenados = [...trabajos].sort((a, b) => {
     // Activos arriba, después el resto del más nuevo al más viejo
     if (estaActivo(a) !== estaActivo(b)) return estaActivo(a) ? -1 : 1;

@@ -18,7 +18,7 @@ const tabs = [
     path: "/entrenamientos",
     label: "Entrenamientos",
     icon: BrainCircuit,
-    descripcion: "Elegí qué aportes usar y lanzá un entrenamiento. Corren de a uno, en el orden en que se encolaron.",
+    descripcion: "Elegí qué aportes usar y lanzá un entrenamiento. Se atienden en el orden en que se encolaron; si hay varios workers, corren varios a la vez.",
   },
   {
     path: "/modelos",

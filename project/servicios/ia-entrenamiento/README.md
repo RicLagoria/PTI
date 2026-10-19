@@ -7,8 +7,9 @@ worker.
 - `nucleo/` — código compartido por los dos: conversión de labelme a YOLO,
   remapeo de clases, cola de trabajos en disco y registro de modelos.
 - `api/` — servidor FastAPI: datasets, entrenamientos (SSE) y modelos.
-- `worker/` — toma trabajos de la cola, de a uno, y corre el entrenamiento
-  (sale de `mvp/entrenador yolov8/train.py`).
+- `worker/` — reclama el trabajo pendiente más viejo de la cola y lo entrena
+  (sale de `mvp/entrenador yolov8/train.py`). Se puede escalar a varias
+  réplicas; ver "Varios workers".
 
 Un entrenamiento publica una versión nueva pero nunca la activa: activar es un
 paso explícito.
@@ -39,6 +40,24 @@ la API arranca con el registro vacío, la publica como primera versión y la
 activa, para que `ia-inferencia` tenga modelo desde la primera instalación.
 `clases.json` declara sus clases: si dejan de coincidir con el principio de la
 lista canónica, no se siembra.
+
+## Varios workers
+
+`docker compose -f despliegue/compose.ia.yml up -d --scale ia-entrenamiento-worker=3`
+levanta tres réplicas. Cada una reclama un trabajo creando `trabajos/<id>.lock`
+con `O_EXCL`, así dos réplicas nunca entrenan el mismo; el trabajo guarda en
+`worker` cuál lo tomó. Cada entrenamiento trabaja en su propia carpeta
+(`trabajos/<id>/`) y publica una versión con nombre propio, así que corren en
+paralelo sin pisarse.
+
+Dos límites a tener en cuenta:
+
+- En una máquina sin GPU, cada entrenamiento ya usa todos los núcleos: varias
+  réplicas sirven para que un entrenamiento largo no frene la cola, pero cada
+  uno corre más lento.
+- Si una réplica muere a mitad de un entrenamiento, ese trabajo queda en
+  `ejecutando` con su `.lock` y ninguna otra lo retoma. Hay que marcarlo como
+  fallido a mano y volver a encolarlo.
 
 ## Pesos de partida
 
