@@ -6,20 +6,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Proyecto Tecnológico Integrador (2026): aplicación web que analiza ortomosaicos GeoTIFF georreferenciados de campos de caña con un modelo YOLOv8 para detectar malezas y ubicarlas en un mapa. El código, los comentarios, los identificadores y los mensajes de commit están en español; mantener esa convención.
 
-## Estado del repo: MVP funcionando, arquitectura nueva en esqueleto
+## Estado del repo: migración del MVP a servicios
 
-**El código que corre hoy es `project/mvp/`.** Es un monolito: un backend FastAPI que hace todo (teselas, lectura del raster e inferencia) y un front en React.
+El sistema se está partiendo en tres planos desplegables por separado (IA, Cliente, Entrenador), según **`docs/arquitectura.md`**, que hay que leer antes de agregar un servicio o mover código. La regla que ordena todo: **el servicio de IA no sabe de geografía** (recibe teselas, devuelve cajas en píxeles locales con un `id` opaco) y lo geoespacial queda en `cliente-api`.
 
-**El destino está descrito en `docs/arquitectura.md`** y hay que leerlo antes de agregar un servicio o mover código. Parte el sistema en tres planos desplegables por separado (IA, Cliente, Entrenador). Su esqueleto ya existe, pero solo con un README por carpeta: todavía no hay código ahí.
+**El código vigente está en `project/servicios/`** y ya corre completo con Docker (ver "Comandos de la arquitectura nueva"):
 
-- `project/servicios/` — `ia-inferencia`, `ia-entrenamiento` (una imagen, dos comandos: `api` y `worker`), `cliente-api`, `cliente-web`, `entrenador-web`.
-- `project/compartido/` — `py-geo` (saldrá de `geo.py`) y `ts-api` (tipos generados de los contratos).
-- `contratos/` — OpenAPI y `clases.json`, la taxonomía canónica. El orden de esa lista será el índice de las etiquetas YOLO: las clases nuevas van siempre al final.
-- `despliegue/` — un compose por plano.
+- `ia-inferencia` — FastAPI. `POST /detectar` recibe un lote de teselas y devuelve las cajas; carga `datos/modelos/activo/best.pt` en cada pedido, así que activar otra versión no requiere reiniciarlo.
+- `ia-entrenamiento` — una imagen, dos comandos: la API (aportes de labelme, entrenamientos con progreso por SSE, registro de versiones) y el worker, que se puede escalar a varias réplicas. Con el registro vacío siembra `semilla/train-3` como modelo activo. Detalle en su README.
+- `cliente-api` — FastAPI con login real (JWT contra PostgreSQL). Dueño de los ortomosaicos y de todo lo geoespacial; para analizar manda lotes de teselas a `ia-inferencia`.
+- `cliente-web` — React + Leaflet: el front del MVP, con el login conectado a `cliente-api`.
+- `entrenador-web` — React: subir aportes, entrenar y activar versiones. No tiene login ni backend propio; habla directo con la API de `ia-entrenamiento`.
+- `base-datos` — esquema inicial de PostgreSQL + PostGIS (tabla `usuarios`). Las cuentas del equipo se cargan con `cliente-api/app/crear_usuarios.py`.
 
-La sección 9 de `docs/arquitectura.md` dice a dónde va cada archivo del MVP. La regla que ordena todo: **el servicio de IA no sabe de geografía** (recibe teselas, devuelve cajas en píxeles locales con un `id` opaco) y lo geoespacial queda en `cliente-api`.
+Compartido y despliegue:
 
-Restos que no hay que tomar como referencia: `project/mvp/front/` (front anterior, un solo `index.html` con JS inline; Docker ya no lo usa), `project/entrenamiento` (archivo vacío) y `project/mvp/requerimientos .txt` (lista original, no sirve con pip porque contiene la línea "Python 3.9.13").
+- `contratos/` — OpenAPI de cada servicio y `clases.json`, la taxonomía canónica. El orden de esa lista es el índice de las etiquetas YOLO: las clases nuevas van siempre al final.
+- `despliegue/` — un compose por plano (`compose.ia.yml`, `compose.cliente.yml`) y `compose.dev.yml` con todo en una máquina salvo el entrenamiento. Los volúmenes viven en `datos/`, en la raíz del repo e ignorado por git.
+- `project/compartido/py-geo` — la lectura del raster de `geo.py` como paquete. `cliente-api` no usa este: instala su propia copia (`cliente-api/py-geo`), que ya difiere.
+- `project/compartido/ts-api` — pensado para tipos generados desde los contratos; hoy tiene tipos escritos a mano, desactualizados, que ningún front importa.
+
+**`project/mvp/` es el monolito anterior** y queda como referencia: un backend FastAPI que hace todo (teselas, lectura del raster e inferencia) y el front en React. Gran parte de este archivo todavía describe el MVP; la sección 9 de `docs/arquitectura.md` dice a dónde fue cada archivo. `project/entrenamiento` es un archivo vacío que quedó de la re-estructuración.
 
 ## Comandos
 
@@ -44,31 +51,35 @@ cd project/mvp/front-react && npm run lint
 cd project/mvp/back && python predict.py
 ```
 
-<<<<<<< HEAD
-### Comandos de la Nueva Arquitectura (project/servicios/)
+### Comandos de la arquitectura nueva (`project/servicios/`)
 
 ```bash
-# Todo el entorno en desarrollo con Docker (ia-inferencia:8001, cliente-api:8000, cliente-web:8080):
+# Todo en una máquina para desarrollo: db:5432, ia-inferencia:8001, cliente-api:8000, cliente-web:8080
 docker compose -f despliegue/compose.dev.yml up --build
+# compose.dev.yml no trae el entrenamiento: se suma la parte de compose.ia.yml sin su ia-inferencia
+# (chocaría en el 8001). Otro nombre de proyecto (-p) para que compose no los mezcle: los dos
+# archivos están en despliegue/ y si no compartirían el nombre por defecto.
+docker compose -p pti-ia -f despliegue/compose.ia.yml up --build ia-entrenamiento-api ia-entrenamiento-worker entrenador-web
 
-# Despliegue por plano:
-docker compose -f despliegue/compose.cliente.yml up --build   # Plano Cliente (web + api)
-docker compose -f despliegue/compose.ia.yml up --build        # Plano IA (inferencia + entrenamiento api/worker)
+# Despliegue por plano
+docker compose -f despliegue/compose.cliente.yml up --build   # Plano Cliente: db, cliente-api, cliente-web
+docker compose -f despliegue/compose.ia.yml up --build        # Plano IA: inferencia, entrenamiento (api + worker), entrenador-web:8003
 
-# Ejecución local sin Docker:
-# 1. Servicio IA Inferencia
-cd project/servicios/ia-inferencia && MODEL_PATH=../../../datos/modelos/activo/best.pt uvicorn app.server:app --port 8001 --reload
+# Cuentas del equipo para el login de cliente-web (con la base ya levantada; se puede repetir)
+docker compose -f despliegue/compose.dev.yml run --rm cliente-api python crear_usuarios.py
 
-# 2. Servicio Cliente API
-cd project/servicios/cliente-api && IA_INFERENCIA_URL=http://localhost:8001 uvicorn app.server:app --port 8000 --reload
+# Sin Docker. Los servidores se corren desde app/: importan sus módulos sin paquete,
+# igual que en la imagen (con "uvicorn app.server:app" falla el import)
+cd project/servicios/ia-inferencia/app && MODEL_PATH=../../../../datos/modelos/activo/best.pt uvicorn server:app --port 8001 --reload
 
-# 3. Cliente Web
-cd project/servicios/cliente-web && npm run dev
+cd project/servicios/cliente-api && pip install -r requirements.txt ./py-geo
+cd project/servicios/cliente-api/app && \
+  DATABASE_URL=postgresql://agrovision:agrovision@localhost:5432/agrovision \
+  IA_INFERENCIA_URL=http://localhost:8001 UPLOAD_DIR=../../../../datos/ortomosaicos \
+  uvicorn server:app --port 8000 --reload
+
+cd project/servicios/cliente-web && npm run dev   # Vite reenvía /api a localhost:8000
 ```
-
-=======
->>>>>>> 4bdf0ef0321aeca3b1ed4e62ac8e3098c89ee7eb
-`project/requerimientos.txt` corresponde al entorno de entrenamiento y etiquetado (labelme, etc.), no al servidor web.
 
 ### Rutas y variables de entorno
 
@@ -121,6 +132,6 @@ React 19 + TypeScript + Vite, con HeroUI, Tailwind 4, `react-router-dom` y `reac
 
 YOLOv8n de detección. La corrida versionada es `project/servicios/ia-entrenamiento/semilla/train-3/` (pesos, `args.yaml`, `results.csv` y curvas), que `ia-entrenamiento` publica como primera versión del registro si arranca vacío, entrenada en CPU con `epochs=50`, `imgsz=640`, `batch=2`. Sus clases, en orden de índice: `maleza`, `falla`, `camino`, `lodazal`.
 
-El dataset no está en el repo: `args.yaml` apunta a una carpeta local de quien entrenó. `project/mvp/entrenador yolov8/train.py` es el script de entrenamiento y espera `Dataset/dataset.yaml` y `yolov8n.pt` en el directorio de trabajo.
+El dataset no está en el repo: `args.yaml` apunta a una carpeta local de quien entrenó. `project/mvp/entrenamiento/train.py` es el script de entrenamiento del MVP y espera `Dataset/dataset.yaml` y `yolov8n.pt` en el directorio de trabajo.
 
 Flujo actual, manual: etiquetar con `labelme`, convertir a formato YOLO, dejar al menos una imagen etiquetada en `images/val` (si falta, el entrenamiento falla con "No images found") y ejecutar `train.py`. El plano de IA de `docs/arquitectura.md` reemplaza este flujo por subida de aportes y entrenamiento desde la web.
