@@ -31,7 +31,9 @@ const tabs = [
 export default function Layout() {
   const location = useLocation();
   const { resolvedTheme, setTheme } = useTheme();
-  const tabActiva = tabs.find((tab) => tab.path === location.pathname) ?? tabs[0];
+  // /modelos/v_123 cuenta como el tab Modelos
+  const tabActiva =
+    tabs.find((tab) => tab.path === location.pathname || (tab.path !== "/" && location.pathname.startsWith(`${tab.path}/`))) ?? tabs[0];
   const oscuro = resolvedTheme === "dark";
 
   return (

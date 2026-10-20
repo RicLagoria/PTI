@@ -33,6 +33,8 @@ export interface Metricas {
   recall?: number;
   map50?: number;
   map50_95?: number;
+  /** El entrenamiento terminó y el worker está evaluando best.pt */
+  evaluando?: boolean;
 }
 
 export interface Trabajo {
@@ -43,6 +45,7 @@ export interface Trabajo {
   epocas: number;
   imgsz: number;
   pesos_base: string;
+  fraccion_validacion?: number;
   progreso_epocas: number;
   metricas: Metricas;
   version_generada: string | null;
@@ -67,8 +70,55 @@ export interface Modelo {
     clases?: string[];
     imagenes_train?: number;
     imagenes_val?: number;
+    fraccion_validacion?: number;
+    error_evaluacion?: string | null;
     metricas?: Metricas;
   };
+}
+
+export interface MetricasPorClase {
+  clase: string;
+  instancias: number;
+  precision: number | null;
+  recall: number | null;
+  map50: number | null;
+  map50_95: number | null;
+}
+
+/** Evaluación de best.pt sobre las imágenes de validación del entrenamiento (evaluacion.json). */
+export interface Evaluacion {
+  conjunto: string;
+  metricas: { precision: number; recall: number; map50: number; map50_95: number };
+  umbral_recomendado: number | null;
+  por_clase: MetricasPorClase[];
+  matriz_confusion: {
+    umbral: number;
+    iou: number;
+    /** Las clases y al final "fondo" */
+    etiquetas: string[];
+    /** filas_reales[real][predicho] = cantidad de cajas */
+    filas_reales: number[][];
+  };
+  curvas_confianza: { confianza: number[]; precision: number[]; recall: number[]; f1: number[] } | null;
+}
+
+export interface EpocaHistorial {
+  epoca: number;
+  perdida_train: number | null;
+  perdida_val: number | null;
+  precision: number | null;
+  recall: number | null;
+  map50: number | null;
+  map50_95: number | null;
+}
+
+export interface DetalleModelo {
+  version: string;
+  /** null en las versiones entrenadas fuera del sistema (la semilla) */
+  evaluacion: Evaluacion | null;
+  historial: EpocaHistorial[];
+  /** Gráficos de Ultralytics disponibles en urlImagenModelo() */
+  imagenes: string[];
 }
 
 export interface SolicitudEntrenamiento {
@@ -76,6 +126,7 @@ export interface SolicitudEntrenamiento {
   epocas: number;
   imgsz: number;
   pesos_base: string;
+  fraccion_validacion: number;
 }
 
 /** Pesos oficiales que acepta la API además de las versiones del registro. */
@@ -161,6 +212,23 @@ export const activarModelo = (version: string) =>
   pedir<{ mensaje: string }>(`/modelos/${encodeURIComponent(version)}/activar`, "No se pudo activar el modelo.", {
     method: "POST",
   });
+
+export const obtenerDetalleModelo = (version: string) =>
+  pedir<DetalleModelo>(`/modelos/${encodeURIComponent(version)}/detalle`, "No se pudo obtener la evaluación del modelo.");
+
+export const urlImagenModelo = (version: string, nombre: string) =>
+  `${ApiConfig.baseURL}/modelos/${encodeURIComponent(version)}/imagenes/${encodeURIComponent(nombre)}`;
+
+/**
+ * Cuántas imágenes de un aporte van a validación. Misma cuenta que
+ * ensamblado.cantidad_validacion() en ia-entrenamiento: .5 se redondea hacia
+ * arriba, al menos 1 de cada lado, y un aporte de una sola imagen va entero a
+ * entrenamiento.
+ */
+export function cantidadValidacion(total: number, fraccion: number): number {
+  if (total < 2) return 0;
+  return Math.min(total - 1, Math.max(1, Math.floor(total * fraccion + 0.5)));
+}
 
 /**
  * Sube un ZIP de labelme. Usa XMLHttpRequest y no fetch para poder mostrar el

@@ -6,6 +6,7 @@ import Layout from "./components/Layout/Layout";
 import Aportes from "./components/Aportes/Aportes";
 import Entrenamientos from "./components/Entrenamientos/Entrenamientos";
 import Modelos from "./components/Modelos/Modelos";
+import DetalleModelo from "./components/Modelos/DetalleModelo";
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
               <Route index element={<Aportes />} />
               <Route path="entrenamientos" element={<Entrenamientos />} />
               <Route path="modelos" element={<Modelos />} />
+              <Route path="modelos/:version" element={<DetalleModelo />} />
             </Route>
           </Routes>
         </HeroUIProvider>

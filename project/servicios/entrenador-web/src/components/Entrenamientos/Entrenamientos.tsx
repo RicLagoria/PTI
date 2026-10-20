@@ -8,6 +8,7 @@ import type { SharedSelection } from "@heroui/react";
 import { BrainCircuit, Clock } from "lucide-react";
 
 import {
+  cantidadValidacion,
   encolarEntrenamiento,
   listarDatasets,
   listarModelos,
@@ -25,6 +26,8 @@ import TarjetaTrabajo from "./TarjetaTrabajo";
 
 // La API acepta múltiplos de 32 entre 320 y 1280; estos son los razonables
 const TAMANOS_IMAGEN = [320, 416, 512, 640, 800, 960, 1280];
+// La API acepta entre 10% y 50% para validación
+const FRACCIONES_VALIDACION = [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5];
 const ESPERA_TRAS_CORTE_MS = 5000;
 
 /** Clave elegida en un Select de selección simple (vacía si se deseleccionó). */
@@ -42,6 +45,7 @@ export default function Entrenamientos() {
   const [epocas, setEpocas] = useState("50");
   const [imgsz, setImgsz] = useState("640");
   const [pesosBase, setPesosBase] = useState(PESOS_BASE_OFICIALES[0]);
+  const [fraccion, setFraccion] = useState("0.25");
   const [enviando, setEnviando] = useState(false);
   const [errorEnvio, setErrorEnvio] = useState<unknown>(null);
   const reintento = useRef<number | undefined>(undefined);
@@ -79,7 +83,10 @@ export default function Entrenamientos() {
   );
 
   const nombreDataset = (id: string) => datasets.find((d) => d.id === id)?.nombre ?? `${id} (eliminado)`;
-  const imagenesElegidas = datasets.filter((d) => elegidos.includes(d.id)).reduce((s, d) => s + d.total_imagenes, 0);
+  const aportesElegidos = datasets.filter((d) => elegidos.includes(d.id));
+  const imagenesElegidas = aportesElegidos.reduce((s, d) => s + d.total_imagenes, 0);
+  // Misma cuenta que el worker: el split se hace dentro de cada aporte
+  const imagenesValidacion = aportesElegidos.reduce((s, d) => s + cantidadValidacion(d.total_imagenes, Number(fraccion)), 0);
   const epocasNumero = Number(epocas);
   const epocasValidas = Number.isInteger(epocasNumero) && epocasNumero >= 1 && epocasNumero <= 300;
   const puedeEnviar = elegidos.length > 0 && imagenesElegidas >= 2 && epocasValidas && !enviando;
@@ -104,6 +111,7 @@ export default function Entrenamientos() {
         epocas: epocasNumero,
         imgsz: Number(imgsz),
         pesos_base: pesosBase,
+        fraccion_validacion: Number(fraccion),
       });
       setTrabajos((lista) => [trabajo, ...lista]);
       setGeneracion((g) => g + 1);
@@ -143,11 +151,7 @@ export default function Entrenamientos() {
           ) : (
             <CheckboxGroup
               label="Aportes a usar"
-              description={
-                elegidos.length > 0
-                  ? `${plural(imagenesElegidas, "imagen", "imágenes")} en total; el 20% de cada aporte va a validación.`
-                  : "Elegí uno o más."
-              }
+              description={elegidos.length > 0 ? `${plural(imagenesElegidas, "imagen", "imágenes")} en total.` : "Elegí uno o más."}
               value={elegidos}
               onValueChange={setElegidos}
             >
@@ -183,6 +187,22 @@ export default function Entrenamientos() {
               ))}
             </Select>
           </div>
+
+          <Select
+            label="Validación"
+            selectedKeys={[fraccion]}
+            disallowEmptySelection
+            onSelectionChange={(claves) => claveElegida(claves) && setFraccion(claveElegida(claves))}
+            description={
+              elegidos.length > 0
+                ? `${plural(imagenesElegidas - imagenesValidacion, "imagen", "imágenes")} para entrenar y ${plural(imagenesValidacion, "imagen", "imágenes")} para validar y armar la evaluación (matriz de confusión, métricas por clase).`
+                : "Parte de cada aporte que no se usa para entrenar: con ella se mide el modelo."
+            }
+          >
+            {FRACCIONES_VALIDACION.map((f) => (
+              <SelectItem key={String(f)}>{`${Math.round(f * 100)} % de cada aporte`}</SelectItem>
+            ))}
+          </Select>
 
           <Select
             label="Partir de"

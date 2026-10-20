@@ -14,7 +14,8 @@ import {
   ModalHeader,
   Spinner,
 } from "@heroui/react";
-import { CheckCircle2, Sprout, TrendingDown, TrendingUp } from "lucide-react";
+import { Link } from "react-router-dom";
+import { BarChart3, CheckCircle2, Sprout, TrendingDown, TrendingUp } from "lucide-react";
 
 import { activarModelo, listarDatasets, listarModelos, type Dataset, type Modelo } from "../../services/EntrenamientoService";
 import { fecha, numero, plural, porcentaje } from "../../utils/formato";
@@ -176,6 +177,13 @@ export default function Modelos() {
                     <p className="text-xs text-slate-500 dark:text-slate-400">Clases: {m.meta.clases.join(", ")}</p>
                   )}
                 </div>
+
+                <Link
+                  to={`/modelos/${encodeURIComponent(m.version)}`}
+                  className="inline-flex items-center gap-1.5 self-start text-sm font-medium text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  <BarChart3 className="h-4 w-4" /> Ver evaluación: por clase, matriz de confusión y curvas
+                </Link>
               </CardBody>
             </Card>
           );

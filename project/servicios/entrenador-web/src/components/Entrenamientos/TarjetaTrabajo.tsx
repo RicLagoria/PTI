@@ -36,6 +36,7 @@ export default function TarjetaTrabajo({
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-400">
             {fecha(trabajo.fecha_creacion)} · {trabajo.epocas} épocas · imgsz {trabajo.imgsz} · desde {trabajo.pesos_base}
+            {trabajo.fraccion_validacion !== undefined && ` · valida ${Math.round(trabajo.fraccion_validacion * 100)} %`}
             {trabajo.worker && (
               <>
                 {" "}
@@ -71,11 +72,17 @@ export default function TarjetaTrabajo({
         <>
           <Progress
             aria-label="Avance del entrenamiento"
-            label={trabajo.progreso_epocas ? `Época ${trabajo.progreso_epocas} de ${trabajo.epocas}` : "Preparando el dataset…"}
+            label={
+              m.evaluando
+                ? "Entrenado: evaluando sobre las imágenes de validación…"
+                : trabajo.progreso_epocas
+                  ? `Época ${trabajo.progreso_epocas} de ${trabajo.epocas}`
+                  : "Preparando el dataset…"
+            }
             value={trabajo.progreso_epocas}
             maxValue={trabajo.epocas}
-            isIndeterminate={!trabajo.progreso_epocas}
-            showValueLabel={!!trabajo.progreso_epocas}
+            isIndeterminate={!trabajo.progreso_epocas || m.evaluando}
+            showValueLabel={!!trabajo.progreso_epocas && !m.evaluando}
             color="primary"
           />
           {trabajo.progreso_epocas > 0 && (
@@ -95,8 +102,11 @@ export default function TarjetaTrabajo({
             Publicó <span className="font-mono font-semibold">{trabajo.version_generada}</span> · mAP50-95{" "}
             <span className="font-semibold">{porcentaje(m.map50_95)}</span> (mejor época {m.epoca_mejor ?? "—"})
           </p>
-          <Link to="/modelos" className="flex items-center gap-1 font-medium text-emerald-700 hover:underline dark:text-emerald-300">
-            Ver en Modelos <ArrowRight className="h-4 w-4" />
+          <Link
+            to={`/modelos/${encodeURIComponent(trabajo.version_generada ?? "")}`}
+            className="flex items-center gap-1 font-medium text-emerald-700 hover:underline dark:text-emerald-300"
+          >
+            Ver evaluación <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
       )}

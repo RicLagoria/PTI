@@ -14,3 +14,30 @@ body {
 .dark body {
   @apply bg-slate-900 text-slate-100;
 }
+
+/* ===== Gráficos ===== */
+
+/* Paleta categórica en orden fijo (azul, naranja, aqua), validada contra las
+   superficies de las tarjetas: blanco en claro, slate-800 en oscuro. El aqua
+   queda bajo 3:1 sobre blanco: por eso las líneas llevan leyenda y etiqueta. */
+:root {
+  --serie-1: #2a78d6;
+  --serie-2: #eb6834;
+  --serie-3: #1baf7a;
+  --grafico-superficie: #ffffff;
+  --grafico-grilla: #e2e8f0;
+  --grafico-eje: #cbd5e1;
+  --grafico-texto: #64748b;
+  --grafico-marcador: #94a3b8;
+}
+
+.dark {
+  --serie-1: #3987e5;
+  --serie-2: #d95926;
+  --serie-3: #199e70;
+  --grafico-superficie: #1e293b;
+  --grafico-grilla: #334155;
+  --grafico-eje: #475569;
+  --grafico-texto: #94a3b8;
+  --grafico-marcador: #64748b;
+}
