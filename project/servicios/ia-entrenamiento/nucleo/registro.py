@@ -17,18 +17,20 @@ PESOS_BASE_OFICIALES = ("yolov8n.pt",)
 NOMBRE_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 CARPETA_ACTIVO = "activo"
 
-# Archivos de una corrida de Ultralytics que se guardan con cada versión
-ARCHIVOS_DE_CORRIDA = (
-    "results.csv",
-    "results.png",
-    "args.yaml",
+# Gráficos que genera Ultralytics y que la API puede servir tal cual. Para las
+# versiones sin evaluacion.json (la semilla) son lo único que hay de su validación.
+IMAGENES_DE_CORRIDA = (
     "confusion_matrix.png",
     "confusion_matrix_normalized.png",
+    "results.png",
     "BoxPR_curve.png",
     "BoxF1_curve.png",
     "BoxP_curve.png",
     "BoxR_curve.png",
 )
+
+# Archivos de una corrida de Ultralytics que se guardan con cada versión
+ARCHIVOS_DE_CORRIDA = ("results.csv", "args.yaml", "evaluacion.json", *IMAGENES_DE_CORRIDA)
 
 
 def _obtener_dir_modelos() -> Path:
@@ -166,6 +168,62 @@ def leer_metricas(results_csv: Path) -> Dict:
         }
     except (OSError, ValueError, KeyError):
         return {}
+
+
+def leer_historial(results_csv: Path) -> List[Dict]:
+    """Pérdidas y métricas de cada época, para dibujar las curvas de entrenamiento."""
+    try:
+        with open(results_csv, "r", encoding="utf-8") as f:
+            filas = [{k.strip(): v.strip() for k, v in fila.items()} for fila in csv.DictReader(f)]
+    except OSError:
+        return []
+
+    def valor(fila: Dict, columna: str) -> Optional[float]:
+        try:
+            return round(float(fila[columna]), 4)
+        except (KeyError, ValueError):
+            return None
+
+    def suma(fila: Dict, prefijo: str) -> Optional[float]:
+        partes = [valor(fila, f"{prefijo}/{c}_loss") for c in ("box", "cls", "dfl")]
+        return None if None in partes else round(sum(partes), 4)
+
+    return [{
+        "epoca": int(valor(fila, "epoch") or 0),
+        # Suma de las tres pérdidas de YOLO (cajas, clases y distribución de bordes)
+        "perdida_train": suma(fila, "train"),
+        "perdida_val": suma(fila, "val"),
+        "precision": valor(fila, "metrics/precision(B)"),
+        "recall": valor(fila, "metrics/recall(B)"),
+        "map50": valor(fila, "metrics/mAP50(B)"),
+        "map50_95": valor(fila, "metrics/mAP50-95(B)"),
+    } for fila in filas]
+
+
+def leer_detalle(version: str) -> Optional[Dict]:
+    """Evaluación numérica, historial por época y gráficos disponibles de una versión."""
+    carpeta = carpeta_version(version)
+    if carpeta is None:
+        return None
+    evaluacion = None
+    if (carpeta / "evaluacion.json").is_file():
+        with open(carpeta / "evaluacion.json", "r", encoding="utf-8") as f:
+            evaluacion = json.load(f)
+    return {
+        "version": version,
+        "evaluacion": evaluacion,
+        "historial": leer_historial(carpeta / "results.csv"),
+        "imagenes": [n for n in IMAGENES_DE_CORRIDA if (carpeta / n).is_file()],
+    }
+
+
+def ruta_imagen(version: str, nombre: str) -> Optional[Path]:
+    """Ruta de un gráfico de la corrida, solo si está en la lista de permitidos."""
+    carpeta = carpeta_version(version)
+    if carpeta is None or nombre not in IMAGENES_DE_CORRIDA:
+        return None
+    ruta = carpeta / nombre
+    return ruta if ruta.is_file() else None
 
 
 def publicar_version(version: str, carpeta_corrida: Path, meta: Dict) -> Dict:

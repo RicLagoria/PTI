@@ -52,7 +52,13 @@ def _escribir_json_atomico(ruta: Path, data: Dict) -> None:
             time.sleep(0.01)
 
 
-def encolar_trabajo(datasets: List[str], epocas: int = 50, imgsz: int = 640, pesos_base: str = "yolov8n.pt") -> Dict:
+def encolar_trabajo(
+    datasets: List[str],
+    epocas: int = 50,
+    imgsz: int = 640,
+    pesos_base: str = "yolov8n.pt",
+    fraccion_validacion: float = 0.25,
+) -> Dict:
     TRABAJOS_DIR.mkdir(parents=True, exist_ok=True)
     trabajo_id = uuid.uuid4().hex[:12]
     archivo_trabajo = TRABAJOS_DIR / f"{trabajo_id}.json"
@@ -67,6 +73,7 @@ def encolar_trabajo(datasets: List[str], epocas: int = 50, imgsz: int = 640, pes
         "epocas": epocas,
         "imgsz": imgsz,
         "pesos_base": pesos_base,
+        "fraccion_validacion": fraccion_validacion,
         "progreso_epocas": 0,
         "metricas": {},
         "version_generada": None,

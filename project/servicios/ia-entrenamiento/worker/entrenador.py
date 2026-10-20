@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import socket
@@ -12,6 +13,7 @@ from ultralytics import YOLO
 import ensamblado
 import registro
 import trabajos
+from evaluacion import evaluar_modelo
 
 # Métricas de validación que Ultralytics deja en trainer.metrics al cerrar cada época
 METRICAS_POR_EPOCA = {
@@ -30,6 +32,7 @@ def ejecutar_un_trabajo(trabajo: dict):
     epocas = trabajo.get("epocas", 50)
     imgsz = trabajo.get("imgsz", 640)
     pesos_base = trabajo.get("pesos_base", "yolov8n.pt")
+    fraccion_validacion = trabajo.get("fraccion_validacion", ensamblado.FRACCION_VALIDACION)
 
     # Todo lo de este trabajo vive en TRABAJOS_DIR/<id>/: el dataset armado y la
     # corrida de Ultralytics (que si no se escribiría en ./runs, dentro del contenedor)
@@ -43,7 +46,9 @@ def ejecutar_un_trabajo(trabajo: dict):
         if pesos is None:
             raise ValueError(f"Pesos de partida no permitidos o inexistentes: {pesos_base}")
 
-        ruta_yaml, resumen = ensamblado.armar_dataset(trabajo["datasets"], carpeta_dataset, semilla=trabajo_id)
+        ruta_yaml, resumen = ensamblado.armar_dataset(
+            trabajo["datasets"], carpeta_dataset, semilla=trabajo_id, fraccion_validacion=fraccion_validacion
+        )
         print(f"[WORKER] Dataset armado: {resumen['imagenes_train']} imágenes de entrenamiento, "
               f"{resumen['imagenes_val']} de validación.")
 
@@ -87,8 +92,26 @@ def ejecutar_un_trabajo(trabajo: dict):
             verbose=False
         )
 
+        carpeta_corrida = Path(model.trainer.save_dir)
+
+        # Evaluación numérica de best.pt (matriz de confusión, métricas por clase,
+        # umbral recomendado). Si falla, el modelo entrenado igual se publica.
+        error_evaluacion = None
+        try:
+            # Avisa a la web que terminó de entrenar y está evaluando, sin perder la última época
+            ultimas = (trabajos.obtener_trabajo(trabajo_id) or {}).get("metricas", {})
+            trabajos.actualizar_trabajo(trabajo_id, metricas={**ultimas, "evaluando": True})
+            evaluacion = evaluar_modelo(
+                str(carpeta_corrida / "weights" / "best.pt"), ruta_yaml, imgsz, carpeta_trabajo, resumen["clases"]
+            )
+            with open(carpeta_corrida / "evaluacion.json", "w", encoding="utf-8") as f:
+                json.dump(evaluacion, f, indent=2, ensure_ascii=False)
+        except Exception as e:
+            error_evaluacion = str(e)
+            print(f"[WORKER] No se pudo evaluar el trabajo {trabajo_id}: {e}")
+
         version_nueva = f"v_{trabajo_id}"
-        meta = registro.publicar_version(version_nueva, Path(model.trainer.save_dir), {
+        meta = registro.publicar_version(version_nueva, carpeta_corrida, {
             "origen": "entrenamiento",
             "trabajo_id": trabajo_id,
             "datasets": trabajo["datasets"],
@@ -98,6 +121,8 @@ def ejecutar_un_trabajo(trabajo: dict):
             "clases": resumen["clases"],
             "imagenes_train": resumen["imagenes_train"],
             "imagenes_val": resumen["imagenes_val"],
+            "fraccion_validacion": fraccion_validacion,
+            "error_evaluacion": error_evaluacion,
         })
 
         # Se publica pero no se activa: activar es un paso explícito (POST /modelos/{v}/activar)

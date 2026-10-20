@@ -54,6 +54,8 @@ class SolicitudEntrenamiento(BaseModel):
     epocas: int = Field(50, ge=1, le=300)
     imgsz: int = Field(640, ge=320, le=1280, multiple_of=32)
     pesos_base: str = "yolov8n.pt"
+    # Parte de cada aporte que se separa para validar (y para la evaluación final)
+    fraccion_validacion: float = Field(0.25, ge=0.1, le=0.5)
 
 
 @app.get("/salud")
@@ -138,7 +140,8 @@ def crear_entrenamiento(solicitud: SolicitudEntrenamiento):
         datasets=ids,
         epocas=solicitud.epocas,
         imgsz=solicitud.imgsz,
-        pesos_base=solicitud.pesos_base
+        pesos_base=solicitud.pesos_base,
+        fraccion_validacion=solicitud.fraccion_validacion,
     )
     return trabajo
 
@@ -180,6 +183,23 @@ def descargar_pesos_activos():
         media_type="application/octet-stream",
         filename="best.pt"
     )
+
+
+@app.get("/modelos/{v}/detalle")
+def detalle_modelo(v: str):
+    """Evaluación sobre validación, historial por época y gráficos disponibles."""
+    detalle = registro.leer_detalle(v)
+    if detalle is None:
+        raise HTTPException(status_code=404, detail=f"No se encontró la versión {v}.")
+    return detalle
+
+
+@app.get("/modelos/{v}/imagenes/{nombre}")
+def imagen_modelo(v: str, nombre: str):
+    ruta = registro.ruta_imagen(v, nombre)
+    if ruta is None:
+        raise HTTPException(status_code=404, detail="Imagen no encontrada.")
+    return FileResponse(path=str(ruta), media_type="image/png")
 
 
 @app.post("/modelos/{v}/activar")

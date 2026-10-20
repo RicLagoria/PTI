@@ -33,6 +33,30 @@ si algo no sirve, con el detalle de qué corregir:
 
 En cada entrenamiento, el 20% de las imágenes de cada aporte va a validación.
 
+## Validación y evaluación de cada versión
+
+Cada entrenamiento separa una parte de cada aporte para validar: 25% por
+defecto, configurable entre 10% y 50% (`fraccion_validacion`). La cuenta por
+aporte es `min(n - 1, max(1, floor(n * fraccion + 0.5)))`, la misma que muestra
+entrenador-web antes de encolar.
+
+Al terminar, el worker vuelve a validar `best.pt` (`worker/evaluacion.py`) y
+guarda `evaluacion.json` junto a la versión. `GET /modelos/{v}/detalle` lo
+devuelve con el historial por época de `results.csv`:
+
+- métricas generales y por clase, con la cantidad de instancias de cada una;
+- el umbral de confianza que maximiza el F1 (no se recomienda si el F1 es casi
+  cero);
+- la matriz de confusión con ese umbral, en filas = clase real, con el fondo
+  al final;
+- las curvas de precisión, recall y F1 según la confianza.
+
+Hay que leerla con cuidado: son las mismas imágenes con las que se eligió la
+mejor época, así que la estimación es algo optimista y solo se compara de igual
+a igual entre versiones entrenadas con los mismos aportes. Si la evaluación
+falla, el modelo igual se publica y el error queda en `error_evaluacion` del
+`meta.json`.
+
 ## Semilla
 
 `semilla/train-3/` es la corrida con la que se entrenó el modelo del MVP. Si

@@ -156,6 +156,16 @@ paths:
                   type: string
                   default: "yolov8n.pt"
                   description: "yolov8n.pt o el nombre de una versión del registro"
+                fraccion_validacion:
+                  type: number
+                  default: 0.25
+                  minimum: 0.1
+                  maximum: 0.5
+                  description: >
+                    Parte de cada aporte que se separa para validación y para la
+                    evaluación final. Por aporte se toma
+                    min(n - 1, max(1, floor(n * fraccion + 0.5))) imágenes; un
+                    aporte de una sola imagen va entero a entrenamiento.
       responses:
         '202':
           description: Entrenamiento encolado
@@ -205,6 +215,131 @@ paths:
           description: Binario de pesos YOLO
           content:
             application/octet-stream:
+              schema:
+                type: string
+                format: binary
+
+  /modelos/{v}/detalle:
+    get:
+      summary: Evaluación, historial por época y gráficos de una versión
+      operationId: getDetalleModelo
+      parameters:
+        - name: v
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: >
+            `evaluacion` es null en las versiones que no se entrenaron en el
+            sistema (la semilla); para esas quedan los gráficos de `imagenes`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version:
+                    type: string
+                  evaluacion:
+                    nullable: true
+                    type: object
+                    description: >
+                      Medida sobre las imágenes de validación del entrenamiento,
+                      las mismas con que se eligió la mejor época: es optimista.
+                    properties:
+                      conjunto:
+                        type: string
+                      metricas:
+                        type: object
+                        properties:
+                          precision: {type: number}
+                          recall: {type: number}
+                          map50: {type: number}
+                          map50_95: {type: number}
+                      umbral_recomendado:
+                        type: number
+                        nullable: true
+                        description: Confianza que maximiza el F1 promedio entre clases
+                      por_clase:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            clase: {type: string}
+                            instancias: {type: integer}
+                            precision: {type: number, nullable: true}
+                            recall: {type: number, nullable: true}
+                            map50: {type: number, nullable: true}
+                            map50_95: {type: number, nullable: true}
+                      matriz_confusion:
+                        type: object
+                        properties:
+                          umbral: {type: number}
+                          iou: {type: number}
+                          etiquetas:
+                            type: array
+                            items: {type: string}
+                            description: Las clases y al final "fondo"
+                          filas_reales:
+                            type: array
+                            description: filas_reales[real][predicho] = cantidad de cajas
+                            items:
+                              type: array
+                              items: {type: integer}
+                      curvas_confianza:
+                        type: object
+                        nullable: true
+                        properties:
+                          confianza: {type: array, items: {type: number}}
+                          precision: {type: array, items: {type: number}}
+                          recall: {type: array, items: {type: number}}
+                          f1: {type: array, items: {type: number}}
+                  historial:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        epoca: {type: integer}
+                        perdida_train: {type: number, nullable: true}
+                        perdida_val: {type: number, nullable: true}
+                        precision: {type: number, nullable: true}
+                        recall: {type: number, nullable: true}
+                        map50: {type: number, nullable: true}
+                        map50_95: {type: number, nullable: true}
+                  imagenes:
+                    type: array
+                    items: {type: string}
+                    description: Gráficos de Ultralytics disponibles en /modelos/{v}/imagenes/{nombre}
+
+  /modelos/{v}/imagenes/{nombre}:
+    get:
+      summary: Gráfico PNG generado por Ultralytics para una versión
+      operationId: getImagenModelo
+      parameters:
+        - name: v
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: nombre
+          in: path
+          required: true
+          schema:
+            type: string
+            enum:
+              - confusion_matrix.png
+              - confusion_matrix_normalized.png
+              - results.png
+              - BoxPR_curve.png
+              - BoxF1_curve.png
+              - BoxP_curve.png
+              - BoxR_curve.png
+      responses:
+        '200':
+          description: Imagen PNG
+          content:
+            image/png:
               schema:
                 type: string
                 format: binary

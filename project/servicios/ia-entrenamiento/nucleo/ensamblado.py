@@ -15,14 +15,27 @@ import yaml
 import datasets
 from clases import obtener_clases_canonicas
 
-FRACCION_VALIDACION = 0.2
+FRACCION_VALIDACION = 0.25
+
+
+def cantidad_validacion(total: int, fraccion: float) -> int:
+    """
+    Cuántas imágenes de un aporte van a validación. Redondea .5 hacia arriba (y no
+    al par, como round()) para que entrenador-web pueda anticipar la misma cuenta.
+    Con una sola imagen no hay qué separar: va entera a entrenamiento.
+    """
+    if total < 2:
+        return 0
+    return min(total - 1, max(1, int(total * fraccion + 0.5)))
 
 
 class ErrorEnsamblado(Exception):
     pass
 
 
-def armar_dataset(ids_datasets: List[str], destino: Path, semilla: str) -> Tuple[Path, Dict]:
+def armar_dataset(
+    ids_datasets: List[str], destino: Path, semilla: str, fraccion_validacion: float = FRACCION_VALIDACION
+) -> Tuple[Path, Dict]:
     """
     Copia los aportes a destino/{images,labels}/{train,val}/ y escribe
     destino/dataset.yaml. Devuelve (ruta del yaml, resumen).
@@ -37,7 +50,13 @@ def armar_dataset(ids_datasets: List[str], destino: Path, semilla: str) -> Tuple
         (destino / "labels" / parte).mkdir(parents=True)
 
     azar = random.Random(semilla)
-    resumen = {"clases": clases, "imagenes_train": 0, "imagenes_val": 0, "por_dataset": {}}
+    resumen = {
+        "clases": clases,
+        "fraccion_validacion": fraccion_validacion,
+        "imagenes_train": 0,
+        "imagenes_val": 0,
+        "por_dataset": {},
+    }
 
     for dataset_id in dict.fromkeys(ids_datasets):
         carpeta = datasets.carpeta_de(dataset_id)
@@ -56,8 +75,7 @@ def armar_dataset(ids_datasets: List[str], destino: Path, semilla: str) -> Tuple
 
         imagenes = sorted(p for p in (carpeta / "imagenes").iterdir() if p.is_file())
         azar.shuffle(imagenes)
-        # Con una sola imagen no hay qué separar: va entera a entrenamiento
-        cantidad_val = max(1, round(len(imagenes) * FRACCION_VALIDACION)) if len(imagenes) >= 2 else 0
+        cantidad_val = cantidad_validacion(len(imagenes), fraccion_validacion)
 
         for i, imagen in enumerate(imagenes):
             parte = "val" if i < cantidad_val else "train"
