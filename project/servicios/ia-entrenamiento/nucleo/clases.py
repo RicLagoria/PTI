@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 from typing import List
 
-CLASES_DEFECTO = ["maleza", "falla", "camino", "lodazal"]
+CLASES_DEFECTO = ["maleza", "falla"]
 
 
 def _ruta_clases_json() -> Path:

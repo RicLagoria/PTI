@@ -1,0 +1,5 @@
+**/__pycache__
+# De la semilla solo hacen falta best.pt, results.csv, args.yaml, clases.json y las curvas
+semilla/**/last.pt
+semilla/**/*_batch*.jpg
+semilla/**/labels.jpg

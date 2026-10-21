@@ -13,6 +13,8 @@ RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/wh
 COPY nucleo/ nucleo/
 COPY api/ api/
 COPY worker/ worker/
+# Corrida train-3: se publica como primera versión si el registro arranca vacío
+COPY semilla/ semilla/
 
 ENV YOLO_CONFIG_DIR=/tmp \
     MPLCONFIGDIR=/tmp/matplotlib \

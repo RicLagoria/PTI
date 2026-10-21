@@ -43,7 +43,7 @@ paths:
                     type: array
                     items:
                       type: string
-                    example: ["maleza", "falla", "camino", "lodazal"]
+                    example: ["maleza", "falla"]
                   imgsz:
                     type: integer
                     example: 640
