@@ -19,7 +19,9 @@ export interface Dataset {
   cajas_descartadas: number;
 }
 
-export type EstadoTrabajo = "pendiente" | "ejecutando" | "completado" | "fallido";
+export type EstadoTrabajo = "pendiente" | "ejecutando" | "completado" | "fallido" | "cancelado";
+
+export const ESTADOS_FINALES: EstadoTrabajo[] = ["completado", "fallido", "cancelado"];
 
 export interface Metricas {
   // Durante el entrenamiento: la época que acaba de cerrar
@@ -33,8 +35,18 @@ export interface Metricas {
   recall?: number;
   map50?: number;
   map50_95?: number;
-  /** El entrenamiento terminó y el worker está evaluando best.pt */
-  evaluando?: boolean;
+}
+
+/** Avance que publica el worker mientras el trabajo está en ejecución. */
+export interface Progreso {
+  fase: "preparando" | "entrenando" | "evaluando";
+  /** 0 a 1, por lote dentro de cada época */
+  fraccion?: number;
+  /** Segundos desde que empezó a entrenar (sin contar la preparación) */
+  transcurrido_s?: number;
+  /** Estimación del worker; falta hasta tener unos segundos de ritmo medido */
+  segundos_restantes?: number;
+  actualizado: string;
 }
 
 export interface Trabajo {
@@ -50,6 +62,10 @@ export interface Trabajo {
   metricas: Metricas;
   version_generada: string | null;
   error: string | null;
+  progreso?: Progreso;
+  /** Se pidió cancelarlo y el worker todavía no cortó */
+  cancelacion_pedida?: boolean;
+  fecha_fin?: string;
   /** Réplica del worker que lo reclamó (hostname-pid); falta mientras está en cola */
   worker?: string;
 }
@@ -206,6 +222,9 @@ export const encolarEntrenamiento = (solicitud: SolicitudEntrenamiento) =>
     body: JSON.stringify(solicitud),
   });
 
+export const cancelarEntrenamiento = (id: string) =>
+  pedir<Trabajo>(`/entrenamientos/${id}/cancelar`, "No se pudo cancelar el entrenamiento.", { method: "POST" });
+
 export const listarModelos = () => pedir<Modelo[]>("/modelos", "No se pudo obtener el registro de modelos.");
 
 export const activarModelo = (version: string) =>
@@ -283,7 +302,7 @@ export function seguirTrabajo(
   es.onmessage = (event) => {
     const trabajo: Trabajo = JSON.parse(event.data);
     onCambio(trabajo);
-    if (trabajo.estado === "completado" || trabajo.estado === "fallido") es.close();
+    if (ESTADOS_FINALES.includes(trabajo.estado)) es.close();
   };
   es.onerror = () => {
     es.close();

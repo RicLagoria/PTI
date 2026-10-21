@@ -249,7 +249,13 @@ export default function Entrenamientos() {
           ) : (
             <ul className="space-y-3">
               {ordenados.map((t) => (
-                <TarjetaTrabajo key={t.id} trabajo={t} nombreDataset={nombreDataset} posicionEnCola={posicion(t)} />
+                <TarjetaTrabajo
+                  key={t.id}
+                  trabajo={t}
+                  nombreDataset={nombreDataset}
+                  posicionEnCola={posicion(t)}
+                  onActualizado={(actualizado) => setTrabajos((lista) => lista.map((x) => (x.id === actualizado.id ? actualizado : x)))}
+                />
               ))}
             </ul>
           )}
