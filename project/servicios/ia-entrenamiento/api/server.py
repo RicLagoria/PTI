@@ -160,12 +160,27 @@ async def stream_entrenamiento(id: str):
 
             yield f"data: {json.dumps(t)}\n\n"
 
-            if t["estado"] in ("completado", "fallido"):
+            if t["estado"] in trabajos.ESTADOS_FINALES:
                 break
 
             await asyncio.sleep(2)
 
     return StreamingResponse(generador_stream(), media_type="text/event-stream")
+
+
+@app.post("/entrenamientos/{id}/cancelar")
+def cancelar_entrenamiento(id: str):
+    """
+    Pendiente: se cancela en el momento. En ejecución: el worker corta en el próximo
+    lote y no publica ninguna versión (mientras tanto el trabajo trae
+    cancelacion_pedida=true).
+    """
+    trabajo = trabajos.obtener_trabajo(id)
+    if trabajo is None:
+        raise HTTPException(status_code=404, detail="Trabajo de entrenamiento no encontrado.")
+    if trabajo["estado"] in trabajos.ESTADOS_FINALES:
+        raise HTTPException(status_code=409, detail=f"El trabajo ya terminó ({trabajo['estado']}).")
+    return trabajos.pedir_cancelacion(id)
 
 
 @app.get("/modelos")

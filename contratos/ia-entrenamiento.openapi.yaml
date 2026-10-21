@@ -174,6 +174,30 @@ paths:
             Algún dataset no existe (`datasets_inexistentes`) o los pesos de
             partida no están permitidos (`pesos_base_validos`).
 
+  /entrenamientos/{id}/cancelar:
+    post:
+      summary: Cancelar un entrenamiento pendiente o en ejecución
+      description: >
+        Pendiente: queda cancelado en el momento y ningún worker lo toma. En
+        ejecución: el worker corta al terminar el lote en curso y no publica
+        ninguna versión; hasta entonces el trabajo trae cancelacion_pedida=true.
+        Si el worker no da señales hace más de 10 minutos (murió), se cancela
+        sin esperarlo.
+      operationId: cancelarEntrenamiento
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: El trabajo, cancelado o con la cancelación pedida
+        '404':
+          description: No existe
+        '409':
+          description: Ya terminó (completado, fallido o cancelado)
+
   /entrenamientos/{id}/stream:
     get:
       summary: Streaming SSE de métricas y avance de entrenamiento
@@ -186,7 +210,12 @@ paths:
             type: string
       responses:
         '200':
-          description: Event stream SSE con época, pérdidas y métricas
+          description: >
+            Event stream SSE: manda el trabajo completo cada 2 s y corta al llegar
+            a un estado final (completado, fallido o cancelado). En ejecución,
+            `progreso` trae la fase (preparando, entrenando, evaluando), la
+            `fraccion` de 0 a 1 (por lote), `transcurrido_s`, `segundos_restantes`
+            (estimado, desde los primeros 10 s de entrenamiento) y `actualizado`.
           content:
             text/event-stream:
               schema:

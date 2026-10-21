@@ -65,6 +65,25 @@ activa, para que `ia-inferencia` tenga modelo desde la primera instalación.
 `clases.json` declara sus clases: si dejan de coincidir con el principio de la
 lista canónica, no se siembra.
 
+## Progreso y cancelación
+
+Mientras entrena, el worker publica en el trabajo un `progreso`:
+- la fase: `preparando`, `entrenando` o `evaluando`;
+- la fracción hecha, que avanza por lote dentro de cada época;
+- el tiempo transcurrido;
+- los segundos restantes, estimados con el ritmo medido hasta ahí, que ya
+  incluye la validación de cada época.
+
+Escribe como mucho cada 2 segundos, y cada escritura es también su `latido`.
+La evaluación final no entra en la estimación.
+
+`POST /entrenamientos/{id}/cancelar` deja una marca `trabajos/<id>.cancelar`.
+El worker la revisa en cada lote y al pasar de fase: corta, no publica ninguna
+versión y borra la corrida. Un trabajo pendiente se cancela en el momento,
+reservándolo con el mismo `.lock` que usan los workers. Si un trabajo en
+ejecución no da latidos hace más de 10 minutos (su worker murió), la
+cancelación se aplica sin esperarlo: así se destraban los trabajos colgados.
+
 ## Varios workers
 
 `docker compose -f despliegue/compose.ia.yml up -d --scale ia-entrenamiento-worker=3`
@@ -80,8 +99,9 @@ Dos límites a tener en cuenta:
   réplicas sirven para que un entrenamiento largo no frene la cola, pero cada
   uno corre más lento.
 - Si una réplica muere a mitad de un entrenamiento, ese trabajo queda en
-  `ejecutando` con su `.lock` y ninguna otra lo retoma. Hay que marcarlo como
-  fallido a mano y volver a encolarlo.
+  `ejecutando` con su `.lock` y ninguna otra lo retoma. Se destraba
+  cancelándolo desde entrenador-web (ver "Progreso y cancelación") y, si hace
+  falta, se vuelve a encolar.
 
 ## Pesos de partida
 
