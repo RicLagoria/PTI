@@ -216,6 +216,8 @@ paths:
             `progreso` trae la fase (preparando, entrenando, evaluando), la
             `fraccion` de 0 a 1 (por lote), `transcurrido_s`, `segundos_restantes`
             (estimado, desde los primeros 10 s de entrenamiento) y `actualizado`.
+            `intentos` es mayor que 1 si un worker dejó de responder y otro lo
+            retomó desde cero.
           content:
             text/event-stream:
               schema:

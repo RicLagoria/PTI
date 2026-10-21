@@ -8,7 +8,7 @@ Ultralytics encuentra la etiqueta de cada imagen reemplazando "images" por
 import random
 import shutil
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import yaml
 
@@ -34,7 +34,11 @@ class ErrorEnsamblado(Exception):
 
 
 def armar_dataset(
-    ids_datasets: List[str], destino: Path, semilla: str, fraccion_validacion: float = FRACCION_VALIDACION
+    ids_datasets: List[str],
+    destino: Path,
+    semilla: str,
+    fraccion_validacion: float = FRACCION_VALIDACION,
+    al_copiar: Optional[Callable[[], None]] = None,
 ) -> Tuple[Path, Dict]:
     """
     Copia los aportes a destino/{images,labels}/{train,val}/ y escribe
@@ -42,6 +46,8 @@ def armar_dataset(
 
     El split se hace dentro de cada aporte, para que todos tengan imágenes en
     validación, y es reproducible: depende solo de `semilla` (el id del trabajo).
+    `al_copiar` se llama después de cada imagen: con aportes grandes la copia tarda, y
+    el worker lo usa para seguir dando latido.
     """
     clases = obtener_clases_canonicas()
     shutil.rmtree(destino, ignore_errors=True)
@@ -93,6 +99,8 @@ def armar_dataset(
             (destino / "labels" / parte / f"{nombre}.txt").write_text(
                 "\n".join(vigentes) + "\n" if vigentes else "", encoding="utf-8"
             )
+            if al_copiar:
+                al_copiar()
 
         resumen["imagenes_train"] += len(imagenes) - cantidad_val
         resumen["imagenes_val"] += cantidad_val

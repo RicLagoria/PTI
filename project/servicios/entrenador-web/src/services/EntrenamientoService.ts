@@ -68,6 +68,8 @@ export interface Trabajo {
   fecha_fin?: string;
   /** Réplica del worker que lo reclamó (hostname-pid); falta mientras está en cola */
   worker?: string;
+  /** Mayor que 1 si su worker anterior dejó de responder y otro lo retomó desde cero */
+  intentos?: number;
 }
 
 export interface Modelo {

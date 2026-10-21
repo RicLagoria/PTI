@@ -8,7 +8,7 @@ Ojo al leer los resultados: son las mismas imágenes con las que se eligió la
 mejor época, así que la estimación es algo optimista.
 """
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 import numpy as np
 from ultralytics import YOLO
@@ -33,13 +33,21 @@ def _muestrear(valores, cantidad: int) -> List[float]:
     return [_redondear(valores[i]) for i in indices]
 
 
-def evaluar_modelo(pesos: str, ruta_yaml: Path, imgsz: int, carpeta: Path, clases: List[str]) -> Dict:
-    """Corre la validación de `pesos` y devuelve el contenido de evaluacion.json."""
+def evaluar_modelo(
+    pesos: str, ruta_yaml: Path, imgsz: int, carpeta: Path, clases: List[str],
+    al_avanzar: Optional[Callable[[], None]] = None,
+) -> Dict:
+    """
+    Corre la validación de `pesos` y devuelve el contenido de evaluacion.json.
+    `al_avanzar` se llama en cada lote: el worker lo usa para seguir dando latido.
+    """
     comunes = dict(
         data=str(ruta_yaml), imgsz=imgsz, batch=2, device="cpu", workers=2, split="val",
         plots=False, verbose=False, project=str(carpeta), name="evaluacion", exist_ok=True,
     )
     modelo = YOLO(pesos)
+    if al_avanzar:
+        modelo.add_callback("on_val_batch_end", lambda validador: al_avanzar())
 
     # 1ª pasada, sin umbral: el mAP se calcula sobre todas las predicciones
     metricas = modelo.val(**comunes)

@@ -110,6 +110,7 @@ export default function TarjetaTrabajo({
           <p className="text-xs text-slate-500 dark:text-slate-400">
             {fecha(trabajo.fecha_creacion)} · {trabajo.epocas} épocas · imgsz {trabajo.imgsz} · desde {trabajo.pesos_base}
             {trabajo.fraccion_validacion !== undefined && ` · valida ${Math.round(trabajo.fraccion_validacion * 100)} %`}
+            {trabajo.intentos !== undefined && trabajo.intentos > 1 && ` · intento ${trabajo.intentos} (el worker anterior dejó de responder)`}
             {trabajo.worker && trabajo.worker !== "cancelado" && (
               <>
                 {" "}

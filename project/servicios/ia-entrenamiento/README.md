@@ -75,33 +75,43 @@ Mientras entrena, el worker publica en el trabajo un `progreso`:
   incluye la validación de cada época.
 
 Escribe como mucho cada 2 segundos, y cada escritura es también su `latido`.
-La evaluación final no entra en la estimación.
+También da latido, sin mover la barra, mientras copia el dataset, en cada lote
+de la validación de cada época y durante la evaluación final. La evaluación
+final no entra en la estimación.
 
 `POST /entrenamientos/{id}/cancelar` deja una marca `trabajos/<id>.cancelar`.
 El worker la revisa en cada lote y al pasar de fase: corta, no publica ninguna
 versión y borra la corrida. Un trabajo pendiente se cancela en el momento,
 reservándolo con el mismo `.lock` que usan los workers. Si un trabajo en
-ejecución no da latidos hace más de 10 minutos (su worker murió), la
-cancelación se aplica sin esperarlo: así se destraban los trabajos colgados.
+ejecución no da latidos hace más de `LATIDO_MAXIMO_S` (su worker murió y no hay
+otro que lo retome), la cancelación se aplica sin esperarlo.
 
 ## Varios workers
 
 `docker compose -f despliegue/compose.ia.yml up -d --scale ia-entrenamiento-worker=3`
 levanta tres réplicas. Cada una reclama un trabajo creando `trabajos/<id>.lock`
 con `O_EXCL`, así dos réplicas nunca entrenan el mismo; el trabajo guarda en
-`worker` cuál lo tomó. Cada entrenamiento trabaja en su propia carpeta
-(`trabajos/<id>/`) y publica una versión con nombre propio, así que corren en
-paralelo sin pisarse.
+`worker` cuál lo tomó. Cada intento trabaja en su propia carpeta
+(`trabajos/<id>/intento-N/`) y cada trabajo publica una versión con nombre
+propio, así que corren en paralelo sin pisarse.
 
-Dos límites a tener en cuenta:
+Los archivos de cada trabajo en `trabajos/` son su estado: `<id>.json`, las
+reservas (`<id>.lock`, `<id>.lock2`…), `<id>.cancelar` y `<id>.fin`, que marca
+que terminó. Los workers eligen candidatos por los nombres de archivo y solo
+abren los JSON de los que no terminaron, así el historial no los frena.
 
-- En una máquina sin GPU, cada entrenamiento ya usa todos los núcleos: varias
-  réplicas sirven para que un entrenamiento largo no frene la cola, pero cada
-  uno corre más lento.
-- Si una réplica muere a mitad de un entrenamiento, ese trabajo queda en
-  `ejecutando` con su `.lock` y ninguna otra lo retoma. Se destraba
-  cancelándolo desde entrenador-web (ver "Progreso y cancelación") y, si hace
-  falta, se vuelve a encolar.
+**Si una réplica muere** a mitad de un entrenamiento (reinicio, falta de
+memoria), su trabajo deja de dar latido. Pasado `LATIDO_MAXIMO_S` (600 s por
+defecto), otra réplica lo retoma desde cero en un intento nuevo, con una
+reserva exclusiva por intento para que no lo tomen dos. Después de
+`MAX_INTENTOS` (2 por defecto) queda fallido, para no reintentar para siempre
+un trabajo que tumba al worker. Si la réplica en realidad seguía viva (por
+ejemplo, estuvo pausada), en su siguiente escritura ve que el trabajo ya no es
+suyo y lo abandona sin escribir nada.
+
+En una máquina sin GPU, cada entrenamiento ya usa todos los núcleos: varias
+réplicas sirven para que un entrenamiento largo no frene la cola, pero cada
+uno corre más lento.
 
 ## Pesos de partida
 
