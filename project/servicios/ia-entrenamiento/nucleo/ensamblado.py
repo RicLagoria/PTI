@@ -64,15 +64,19 @@ def armar_dataset(
             raise ErrorEnsamblado(f"El dataset {dataset_id} no existe (¿se borró después de encolar el trabajo?).")
         meta = datasets.leer_meta(dataset_id)
 
-        # Los índices de sus etiquetas apuntan a la lista vigente cuando se subió
+        # Los índices de sus etiquetas apuntan a la lista vigente cuando se subió. Sirve si
+        # una lista es el principio de la otra: o se agregaron clases al final (el aporte
+        # simplemente no las tiene) o se retiraron del final (sus cajas se descartan abajo).
         clases_dataset = meta.get("clases") or []
-        if clases[:len(clases_dataset)] != clases_dataset:
+        comun = min(len(clases), len(clases_dataset))
+        if clases[:comun] != clases_dataset[:comun]:
             raise ErrorEnsamblado(
-                f"El dataset {dataset_id} se convirtió con las clases {clases_dataset}, que ya no son el "
-                f"principio de la lista canónica {clases}. Alguien reordenó o borró clases en "
-                f"contratos/clases.json: hay que volver a subir ese aporte."
+                f"El dataset {dataset_id} se convirtió con las clases {clases_dataset}, incompatibles con la "
+                f"lista canónica {clases}: alguien reordenó o borró clases del medio en "
+                f"contratos/clases.json. Hay que volver a subir ese aporte."
             )
 
+        descartadas = 0
         imagenes = sorted(p for p in (carpeta / "imagenes").iterdir() if p.is_file())
         azar.shuffle(imagenes)
         cantidad_val = cantidad_validacion(len(imagenes), fraccion_validacion)
@@ -82,11 +86,19 @@ def armar_dataset(
             # El prefijo evita choques de nombres entre aportes distintos
             nombre = f"{dataset_id}_{imagen.stem}"
             shutil.copy2(imagen, destino / "images" / parte / f"{nombre}{imagen.suffix}")
-            shutil.copy2(carpeta / "etiquetas" / f"{imagen.stem}.txt", destino / "labels" / parte / f"{nombre}.txt")
+            lineas = (carpeta / "etiquetas" / f"{imagen.stem}.txt").read_text(encoding="utf-8").splitlines()
+            # Cajas de clases retiradas de la lista canónica: quedan como fondo
+            vigentes = [l for l in lineas if l.strip() and int(l.split()[0]) < len(clases)]
+            descartadas += len([l for l in lineas if l.strip()]) - len(vigentes)
+            (destino / "labels" / parte / f"{nombre}.txt").write_text(
+                "\n".join(vigentes) + "\n" if vigentes else "", encoding="utf-8"
+            )
 
         resumen["imagenes_train"] += len(imagenes) - cantidad_val
         resumen["imagenes_val"] += cantidad_val
         resumen["por_dataset"][dataset_id] = {"train": len(imagenes) - cantidad_val, "val": cantidad_val}
+        if descartadas:
+            resumen["por_dataset"][dataset_id]["cajas_de_clases_retiradas"] = descartadas
 
     if resumen["imagenes_train"] == 0 or resumen["imagenes_val"] == 0:
         raise ErrorEnsamblado(

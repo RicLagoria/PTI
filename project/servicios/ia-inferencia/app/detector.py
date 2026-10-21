@@ -53,7 +53,7 @@ class FieldDetector:
         if not self.model:
             return {
                 "version": self.version,
-                "clases": ["maleza", "falla", "camino", "lodazal"],
+                "clases": ["maleza", "falla"],
                 "imgsz": self.imgsz,
                 "metricas": {},
                 "disponible": False

@@ -21,7 +21,7 @@ El sistema se está partiendo en tres planos desplegables por separado (IA, Clie
 
 Compartido y despliegue:
 
-- `contratos/` — OpenAPI de cada servicio y `clases.json`, la taxonomía canónica. El orden de esa lista es el índice de las etiquetas YOLO: las clases nuevas van siempre al final.
+- `contratos/` — OpenAPI de cada servicio y `clases.json`, la taxonomía canónica: hoy `maleza` y `falla`. El orden de esa lista es el índice de las etiquetas YOLO, así que solo se cambia por el final: las clases nuevas se agregan al final y solo se retira la última (así salieron `camino` y `lodazal`; ver `contratos/README.md`).
 - `despliegue/` — un compose por plano (`compose.ia.yml`, `compose.cliente.yml`) y `compose.dev.yml` con todo en una máquina salvo el entrenamiento. Los volúmenes viven en `datos/`, en la raíz del repo e ignorado por git.
 - `project/compartido/py-geo` — la lectura del raster de `geo.py` como paquete. `cliente-api` no usa este: instala su propia copia (`cliente-api/py-geo`), que ya difiere.
 - `project/compartido/ts-api` — pensado para tipos generados desde los contratos; hoy tiene tipos escritos a mano, desactualizados, que ningún front importa.
@@ -130,7 +130,7 @@ React 19 + TypeScript + Vite, con HeroUI, Tailwind 4, `react-router-dom` y `reac
 
 ## Modelo y dataset
 
-YOLOv8n de detección. La corrida versionada es `project/servicios/ia-entrenamiento/semilla/train-3/` (pesos, `args.yaml`, `results.csv` y curvas), que `ia-entrenamiento` publica como primera versión del registro si arranca vacío, entrenada en CPU con `epochs=50`, `imgsz=640`, `batch=2`. Sus clases, en orden de índice: `maleza`, `falla`, `camino`, `lodazal`.
+YOLOv8n de detección. La corrida versionada es `project/servicios/ia-entrenamiento/semilla/train-3/` (pesos, `args.yaml`, `results.csv` y curvas), que `ia-entrenamiento` publica como primera versión del registro si arranca vacío, entrenada en CPU con `epochs=50`, `imgsz=640`, `batch=2`. Sus clases, en orden de índice: `maleza`, `falla`, `camino`, `lodazal`; las dos últimas ya no son canónicas, así que mientras esté activa los análisis pueden marcarlas.
 
 El dataset no está en el repo: `args.yaml` apunta a una carpeta local de quien entrenó. `project/mvp/entrenamiento/train.py` es el script de entrenamiento del MVP y espera `Dataset/dataset.yaml` y `yolov8n.pt` en el directorio de trabajo.
 

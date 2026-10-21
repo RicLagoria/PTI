@@ -274,12 +274,14 @@ def sembrar_si_vacio(carpeta_semilla: Path, clases_canonicas: List[str]) -> Opti
     if listar_modelos() or not (carpeta_semilla / "weights" / "best.pt").is_file():
         return None
 
-    # Las clases de la semilla vienen anotadas al lado de los pesos; si ya no
-    # coinciden con el principio de la lista canónica, sus índices significan
-    # otra cosa y no se puede usar.
+    # Las clases de la semilla vienen anotadas al lado de los pesos. Sirve si una
+    # lista es el principio de la otra; si no, sus índices significan otra cosa.
+    # Si tiene clases ya retiradas de la lista canónica, las sigue prediciendo
+    # hasta que se active una versión entrenada con la lista nueva.
     archivo_clases = carpeta_semilla / "clases.json"
     clases = json.loads(archivo_clases.read_text(encoding="utf-8")) if archivo_clases.is_file() else None
-    if not clases or clases_canonicas[:len(clases)] != clases:
+    comun = min(len(clases or []), len(clases_canonicas))
+    if not clases or clases_canonicas[:comun] != clases[:comun]:
         print(f"[REGISTRO] No se siembra {carpeta_semilla.name}: sus clases {clases} "
               f"no son compatibles con las canónicas {clases_canonicas}.")
         return None
