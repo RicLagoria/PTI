@@ -31,12 +31,28 @@ def _obtener_ruta_modelo() -> str:
     return env_path or "data/modelo/best.pt"
 
 
+def _obtener_version(ruta_modelo: Path) -> str:
+    """
+    Nombre de la versión cargada. ia-entrenamiento, al activar una versión, deja su
+    nombre en version.txt junto a los pesos (datos/modelos/activo/); sin él, el nombre
+    de la carpeta sería siempre "activo" y no se sabría con qué modelo se analizó.
+    """
+    if os.environ.get("MODEL_VERSION"):
+        return os.environ["MODEL_VERSION"]
+    archivo_version = ruta_modelo.parent / "version.txt"
+    if archivo_version.is_file():
+        version = archivo_version.read_text(encoding="utf-8").strip()
+        if version:
+            return version
+    if not ruta_modelo.exists() or ruta_modelo.parent.name in ("modelo", "weights", "activo", "."):
+        return "v1"
+    return ruta_modelo.parent.name
+
+
 class FieldDetector:
     def __init__(self, model_path: Optional[str] = None):
         self.ruta_modelo = model_path or _obtener_ruta_modelo()
-        self.version = os.environ.get("MODEL_VERSION", Path(self.ruta_modelo).parent.name if Path(self.ruta_modelo).exists() else "v1")
-        if self.version in ("modelo", "weights", "."):
-            self.version = "v1"
+        self.version = _obtener_version(Path(self.ruta_modelo))
 
         if Path(self.ruta_modelo).exists():
             self.model = YOLO(self.ruta_modelo)

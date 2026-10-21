@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "nucleo"))
 
 import clases
 import datasets
+import ensamblado
 import registro
 import trabajos
 from conversion_labelme import ErrorAporte
@@ -128,6 +129,20 @@ def crear_entrenamiento(solicitud: SolicitudEntrenamiento):
         raise HTTPException(status_code=400, detail={
             "mensaje": "Hay datasets que no existen.",
             "datasets_inexistentes": inexistentes,
+        })
+
+    # El split se hace dentro de cada aporte y un aporte de una sola imagen va entero a
+    # entrenamiento: con aportes chicos puede no quedar nada para validar. Mejor
+    # rechazarlo acá que encolarlo y que falle cuando lo tome un worker.
+    totales = [datasets.leer_meta(i)["total_imagenes"] for i in ids]
+    validacion = sum(ensamblado.cantidad_validacion(n, solicitud.fraccion_validacion) for n in totales)
+    if validacion == 0 or validacion == sum(totales):
+        raise HTTPException(status_code=400, detail={
+            "mensaje": (
+                f"Con estos aportes quedan {sum(totales) - validacion} imágenes para entrenar y "
+                f"{validacion} para validar: hace falta al menos una de cada lado. Sumá aportes de "
+                f"más de una imagen."
+            ),
         })
 
     if registro.resolver_pesos_base(solicitud.pesos_base) is None:

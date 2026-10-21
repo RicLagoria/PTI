@@ -3,6 +3,8 @@ import json
 import os
 import re
 import shutil
+import threading
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -56,6 +58,10 @@ def _obtener_dir_modelos() -> Path:
 
 
 MODELOS_DIR = _obtener_dir_modelos()
+
+# FastAPI corre los endpoints sync en un pool de hilos: dos activaciones a la vez
+# podrían dejar best.pt de una versión y version.txt de la otra
+_activando = threading.Lock()
 
 
 def es_version_valida(version: str) -> bool:
@@ -131,14 +137,18 @@ def activar_modelo(version: str) -> bool:
     carpeta_activo = MODELOS_DIR / CARPETA_ACTIVO
     carpeta_activo.mkdir(parents=True, exist_ok=True)
 
-    # os.replace es atómico: ia-inferencia nunca ve el archivo a medio copiar ni ausente
-    temporal = carpeta_activo / "best.pt.tmp"
-    shutil.copy2(carpeta / "best.pt", temporal)
-    os.replace(temporal, carpeta_activo / "best.pt")
+    with _activando:
+        # os.replace es atómico: ia-inferencia nunca ve el archivo a medio copiar ni ausente
+        temporal = carpeta_activo / f".best.pt.{uuid.uuid4().hex}.tmp"
+        try:
+            shutil.copy2(carpeta / "best.pt", temporal)
+            os.replace(temporal, carpeta_activo / "best.pt")
+        finally:
+            temporal.unlink(missing_ok=True)
 
-    temporal_version = carpeta_activo / "version.txt.tmp"
-    temporal_version.write_text(version, encoding="utf-8")
-    os.replace(temporal_version, carpeta_activo / "version.txt")
+        temporal_version = carpeta_activo / f".version.txt.{uuid.uuid4().hex}.tmp"
+        temporal_version.write_text(version, encoding="utf-8")
+        os.replace(temporal_version, carpeta_activo / "version.txt")
     return True
 
 

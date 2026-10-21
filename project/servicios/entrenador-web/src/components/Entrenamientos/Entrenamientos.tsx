@@ -89,7 +89,9 @@ export default function Entrenamientos() {
   const imagenesValidacion = aportesElegidos.reduce((s, d) => s + cantidadValidacion(d.total_imagenes, Number(fraccion)), 0);
   const epocasNumero = Number(epocas);
   const epocasValidas = Number.isInteger(epocasNumero) && epocasNumero >= 1 && epocasNumero <= 300;
-  const puedeEnviar = elegidos.length > 0 && imagenesElegidas >= 2 && epocasValidas && !enviando;
+  // Misma regla que la API: al menos una imagen de cada lado del split
+  const splitValido = imagenesValidacion > 0 && imagenesElegidas - imagenesValidacion > 0;
+  const puedeEnviar = elegidos.length > 0 && splitValido && epocasValidas && !enviando;
 
   // Los workers reclaman primero el pendiente más viejo: la posición sale de ordenar
   // los pendientes por fecha. Los que ya están corriendo no cuentan, porque con
@@ -230,8 +232,11 @@ export default function Entrenamientos() {
           <Button color="primary" onPress={enviar} isDisabled={!puedeEnviar} isLoading={enviando} className="dark:bg-blue-700">
             Encolar entrenamiento
           </Button>
-          {elegidos.length > 0 && imagenesElegidas < 2 && (
-            <p className="text-sm text-amber-700 dark:text-amber-300">Hacen falta al menos 2 imágenes para separar entrenamiento y validación.</p>
+          {elegidos.length > 0 && !splitValido && (
+            <p className="text-sm text-amber-700 dark:text-amber-300">
+              Hace falta al menos una imagen para entrenar y otra para validar. Un aporte de una sola imagen va entero a
+              entrenamiento: sumá aportes de más de una imagen.
+            </p>
           )}
           {errorEnvio != null && <PanelError error={errorEnvio} />}
         </CardBody>
