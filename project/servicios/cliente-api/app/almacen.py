@@ -1,11 +1,10 @@
-import json
 import os
 import re
 import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Tuple
 
 import rasterio
 import rasterio.shutil
@@ -42,10 +41,15 @@ MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_MB", "8192")) * 1024 * 1024
 EXTENSIONES_VALIDAS = (".tif", ".tiff")
 NOMBRE_SUBIDA = "subida.tif"
 NOMBRE_COG = "imagen.tif"
-NOMBRE_META = "meta.json"
-NOMBRE_DETECCIONES = "detecciones.json"
+# meta.json y detecciones.json ya no se escriben: esa metadata y las
+# detecciones viven en Postgres (ver datos.py). Acá solo queda el .tif.
 
 _PATRON_ID = re.compile(r"^[0-9a-f]{32}$")
+
+
+def validar_id(imagen_id: str) -> bool:
+    """El id solo puede ser un UUID hex: así nunca se arma una ruta fuera de UPLOAD_DIR."""
+    return bool(_PATRON_ID.match(imagen_id))
 
 
 class ImagenInvalida(Exception):
@@ -61,26 +65,14 @@ def crear_carpeta_nueva() -> Tuple[str, Path]:
     return imagen_id, carpeta / NOMBRE_SUBIDA
 
 
-def carpeta_de(imagen_id: str) -> Optional[Path]:
-    """
-    Retorna la carpeta de una imagen ya procesada o None si no existe.
-    El id solo puede ser un UUID hex, así nunca se arma una ruta fuera de UPLOAD_DIR.
-    """
-    if not _PATRON_ID.match(imagen_id):
-        return None
-    carpeta = UPLOAD_DIR / imagen_id
-    if not (carpeta / NOMBRE_META).is_file():
-        return None
-    return carpeta
-
-
 def descartar(imagen_id: str):
     shutil.rmtree(UPLOAD_DIR / imagen_id, ignore_errors=True)
 
 
 def finalizar_subida(imagen_id: str, nombre_original: str) -> Dict:
     """
-    Valida el archivo crudo, lo deja como COG y escribe meta.json.
+    Valida el archivo crudo y lo deja como COG. Devuelve la metadata para que
+    el caller la persista en la tabla ortomosaicos (ver datos.py).
     Lanza ImagenInvalida si no es un GeoTIFF georreferenciado.
     """
     carpeta = UPLOAD_DIR / imagen_id
@@ -119,23 +111,9 @@ def finalizar_subida(imagen_id: str, nombre_original: str) -> Dict:
                 [norte, este]   # Noreste [lat, lon]
             ],
             "minzoom": cog.minzoom,
-            "maxzoom": cog.maxzoom
+            "maxzoom": cog.maxzoom,
+            "ruta_archivo": str(ruta_cog),
         }
 
-    with open(carpeta / NOMBRE_META, "w", encoding="utf-8") as f:
-        json.dump(meta, f, indent=2)
     return meta
-
-
-def leer_meta(carpeta: Path) -> Dict:
-    with open(carpeta / NOMBRE_META, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def listar() -> List[Dict]:
-    """Imágenes ya procesadas, de la más reciente a la más antigua."""
-    if not UPLOAD_DIR.is_dir():
-        return []
-    metas = [leer_meta(p.parent) for p in UPLOAD_DIR.glob(f"*/{NOMBRE_META}")]
-    return sorted(metas, key=lambda m: m["fecha_subida"], reverse=True)
 
