@@ -47,15 +47,27 @@ Para que la GPU funcione hacen falta tres cosas, y las tres fallan distinto:
 
 1. **La placa y su driver** en la máquina: `nvidia-smi` la tiene que ver.
 2. **Un torch con CUDA.** La imagen se construye por defecto con las ruedas
-   `+cpu`, porque las de CUDA se traen las librerías de NVIDIA y le suman varios
-   GB. Se cambia con el build arg `VARIANTE_TORCH` (`cu128`).
+   `cu128`. Se cambia con el build arg `VARIANTE_TORCH` (`cpu`), que son varios
+   GB menos porque no se trae las librerías de NVIDIA.
 3. **Acceso del contenedor al dispositivo**: `nvidia-container-toolkit` en el
    host y la reserva de GPU en el compose.
 
-La reserva la pone el override de compose, y con él se construye la imagen CUDA:
+Las dos últimas las pone `compose.ia.yml`, que es el despliegue normal:
 
 ```bash
-docker compose -f despliegue/compose.ia.yml -f despliegue/compose.ia.gpu.yml up --build
+docker compose -f despliegue/compose.ia.yml up --build
+```
+
+El default es GPU a propósito. Desde una imagen con CUDA se entrena igual en
+CPU (`dispositivo: cpu` es el valor por defecto de un trabajo), así que tenerla
+no saca nada; al revés sí: con la imagen `+cpu` la opción GPU aparece
+deshabilitada y hay que reconstruir para habilitarla. Lo que cuesta el default
+son varios GB de imagen y que **en una máquina sin placa el `up` falla** con
+"could not select device driver nvidia", para lo cual esta
+`compose.ia.cpu.yml`:
+
+```bash
+docker compose -f despliegue/compose.ia.yml -f despliegue/compose.ia.cpu.yml up --build
 ```
 
 El toolkit se instala una vez por máquina, desde el repo de NVIDIA (que es

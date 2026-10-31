@@ -22,7 +22,7 @@ El sistema se está partiendo en tres planos desplegables por separado (IA, Clie
 Compartido y despliegue:
 
 - `contratos/` — OpenAPI de cada servicio y `clases.json`, la taxonomía canónica: hoy `maleza` y `falla`. El orden de esa lista es el índice de las etiquetas YOLO, así que solo se cambia por el final: las clases nuevas se agregan al final y solo se retira la última (así salieron `camino` y `lodazal`; ver `contratos/README.md`).
-- `despliegue/` — un compose por plano (`compose.ia.yml`, `compose.cliente.yml`), `compose.dev.yml` con todo en una máquina salvo el entrenamiento, y `compose.ia.gpu.yml`, un override de `compose.ia.yml` para entrenar en GPU. Los volúmenes viven en `datos/`, en la raíz del repo e ignorado por git.
+- `despliegue/` — un compose por plano (`compose.ia.yml`, `compose.cliente.yml`), `compose.dev.yml` con todo en una máquina salvo el entrenamiento, y `compose.ia.cpu.yml`, un override de `compose.ia.yml` para una máquina sin placa NVIDIA. **`compose.ia.yml` construye con CUDA y reserva la GPU por defecto**, porque entrenar en CPU sigue disponible desde esa misma imagen y lo que no se puede deshacer en caliente es lo otro. Los volúmenes viven en `datos/`, en la raíz del repo e ignorado por git.
 - `project/compartido/py-geo` — la lectura del raster de `geo.py` como paquete. `cliente-api` no usa este: instala su propia copia (`cliente-api/py-geo`), que ya difiere — entre otras cosas, `pixeles_globales_a_latlon` (reproyección de muchos puntos de una vez, para los vértices de un contorno) está solo en la de `cliente-api`.
 - `project/compartido/ts-api` — pensado para tipos generados desde los contratos; hoy tiene tipos escritos a mano, desactualizados, que ningún front importa.
 
@@ -82,10 +82,10 @@ docker compose -p pti-ia -f despliegue/compose.ia.yml up --build ia-entrenamient
 docker compose -f despliegue/compose.cliente.yml up --build   # Plano Cliente: db, cliente-api, cliente-web
 docker compose -f despliegue/compose.ia.yml up --build        # Plano IA: inferencia, entrenamiento (api + worker), entrenador-web:8003
 
-# Plano IA con la GPU habilitada para entrenar. Es un override, van los dos -f.
-# Reconstruye la imagen de entrenamiento con las ruedas CUDA de torch (VARIANTE_TORCH=cu128,
-# varios GB más) y le reserva la placa; necesita nvidia-container-toolkit en el host.
-docker compose -f despliegue/compose.ia.yml -f despliegue/compose.ia.gpu.yml up --build
+# Plano IA en una máquina sin placa NVIDIA. Es un override, van los dos -f: saca la
+# reserva de GPU (sin esto el "up" falla antes de arrancar) y construye con torch +cpu,
+# varios GB menos. Entrenar en CPU anda igual, que es el default de un trabajo.
+docker compose -f despliegue/compose.ia.yml -f despliegue/compose.ia.cpu.yml up --build
 
 # Cuentas del equipo para el login de cliente-web (con la base ya levantada; se puede repetir)
 docker compose -f despliegue/compose.dev.yml run --rm cliente-api python crear_usuarios.py

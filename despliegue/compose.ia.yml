@@ -10,7 +10,17 @@ services:
     restart: unless-stopped
 
   ia-entrenamiento-api:
-    build: ../project/servicios/ia-entrenamiento
+    build:
+      context: ../project/servicios/ia-entrenamiento
+      args:
+        VARIANTE_TORCH: cu128
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     environment:
       MODELOS_DIR: /datos/modelos
       DATASETS_DIR: /datos/datasets
@@ -29,7 +39,17 @@ services:
     restart: unless-stopped
 
   ia-entrenamiento-worker:
-    build: ../project/servicios/ia-entrenamiento
+    build:
+      context: ../project/servicios/ia-entrenamiento
+      args:
+        VARIANTE_TORCH: cu128
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     command: ["python", "worker/entrenador.py"]
     # El dataloader de YOLO le pasa las imágenes a sus procesos auxiliares
     # (workers=2, ver worker/entrenador.py) por memoria compartida, y los 64 MB
@@ -42,6 +62,9 @@ services:
       MODELOS_DIR: /datos/modelos
       DATASETS_DIR: /datos/datasets
       TRABAJOS_DIR: /datos/trabajos
+      # Imágenes por lote en GPU. 16 a 640 px entra con holgura en 8 GB de VRAM;
+      # bajarlo si el entrenamiento se cae con "CUDA out of memory".
+      LOTE_GPU: 16
     volumes:
       - ../datos/modelos:/datos/modelos
       - ../datos/datasets:/datos/datasets
