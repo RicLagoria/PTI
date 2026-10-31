@@ -395,6 +395,108 @@ def fusionar_detecciones_vecinas(
     return resumen
 
 
+# Qué parte de una detección tiene que estar dentro de otra, más grande y de la
+# misma clase, para considerarla la misma mancha detectada dos veces. Sale de
+# medir la distribución sobre dos análisis reales (771 pares que se cruzan): es
+# bimodal, con 568 pares por encima de 0,9 —219 de ellos con la chica 100 %
+# adentro— y una cola de 61 por debajo de 0,3, que son manchas vecinas que se
+# tocan. Entre 0,3 y 0,8 hay 63 pares, o sea que el corte cae en un valle y no
+# en el medio de nada.
+CONTENIDO_DUPLICADO = 0.9
+
+
+def suprimir_detecciones_anidadas(
+    analisis_id: int, contenido_minimo: float = CONTENIDO_DUPLICADO
+) -> Dict:
+    """
+    Borra las detecciones que están contenidas en otra de la misma clase, y
+    devuelve cuántas.
+
+    YOLO hace NMS sobre las cajas, no sobre las máscaras, así que dos contornos
+    muy distintos pueden sobrevivir con cajas que apenas se pisan: la misma
+    mancha queda detectada dos veces, una adentro de la otra. Eso no se nota
+    mirando el mapa, pero sí al sumar superficies, que es lo que hacen el
+    informe y el dashboard: el mismo suelo se cuenta dos veces. Medido sobre un
+    análisis de 1830 detecciones, sumar las superficies da 12-15 % más que la
+    superficie real (`ST_Area(ST_Union(contorno))`).
+
+    Se queda con la **más grande**, no con la más confiable. La grande cubre
+    todo lo que cubre la anidada, así que no se pierde superficie; y la
+    confianza no ayuda a elegir, porque en los pares anidados la grande es la
+    más confiable apenas el 56 % de las veces. A diferencia de la fusión entre
+    celdas, acá no se toca la confianza de la que queda: esto saca una instancia
+    repetida, no vuelve a estimar con cuánta seguridad se detectó la que sobrevive.
+
+    Corre después de `fusionar_detecciones_vecinas`, porque una mancha recién
+    armada de dos mitades puede contener detecciones que antes no contenía.
+    """
+    with conexion() as con:
+        borradas = con.execute(
+            """
+            DELETE FROM detecciones d
+            WHERE d.analisis_id = %s
+              AND d.contorno IS NOT NULL
+              AND EXISTS (
+                  SELECT 1
+                  FROM detecciones o
+                  WHERE o.analisis_id = d.analisis_id
+                    AND o.id <> d.id
+                    AND o.clase = d.clase
+                    AND o.contorno IS NOT NULL
+                    -- La más grande gana. El desempate por id es para que dos
+                    -- detecciones de la misma área que se contienen entre sí no
+                    -- se borren las dos y desaparezca la mancha.
+                    AND (ST_Area(o.contorno::geography), o.id)
+                        > (ST_Area(d.contorno::geography), d.id)
+                    -- Va antes de medir: ST_Intersects usa el índice GIST de
+                    -- contorno y descarta casi todos los pares sin calcular áreas
+                    AND ST_Intersects(o.contorno, d.contorno)
+                    AND ST_Area(ST_Intersection(o.contorno, d.contorno)::geography)
+                        >= %s * ST_Area(d.contorno::geography)
+              )
+            """,
+            (analisis_id, contenido_minimo),
+        ).rowcount
+        con.commit()
+    return {"suprimidas": borradas or 0}
+
+
+def superficie_real(analisis_id: int) -> Dict:
+    """
+    Superficie que cubren las detecciones, sin contar dos veces el suelo que
+    comparten dos que se pisan. `{"total_m2": …, "por_clase": {clase: m2}}`.
+
+    Sumar la superficie de cada detección no da esto: aunque se supriman las
+    anidadas (ver suprimir_detecciones_anidadas), quedan pares que se solapan
+    parcialmente y ese suelo se cuenta dos veces. Medido sobre un análisis real,
+    la suma da un 6 % de más después de suprimir y un 16 % antes. Para "cuánta
+    maleza hay" la respuesta correcta es la unión, que es lo que mide esto.
+
+    El total no es la suma de las clases: dos clases distintas también pueden
+    pisarse, y en ese caso ese suelo está afectado una sola vez.
+    """
+    with conexion() as con:
+        filas = con.execute(
+            """
+            SELECT clase, ST_Area(ST_Union(contorno)::geography) AS m2
+            FROM detecciones
+            WHERE analisis_id = %s AND contorno IS NOT NULL
+            -- ROLLUP agrega una fila con clase NULL: la unión de todas juntas
+            GROUP BY ROLLUP(clase)
+            """,
+            (analisis_id,),
+        ).fetchall()
+
+    por_clase = {}
+    total = 0.0
+    for f in filas:
+        if f["clase"] is None:
+            total = round(float(f["m2"] or 0.0), 2)
+        else:
+            por_clase[f["clase"]] = round(float(f["m2"] or 0.0), 2)
+    return {"total_m2": total, "por_clase": por_clase}
+
+
 def obtener_detecciones(analisis_id: int) -> List[Dict]:
     """
     Para volver a ver un análisis pasado sin tener que re-ejecutarlo. Devuelve lo

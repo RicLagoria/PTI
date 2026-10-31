@@ -124,6 +124,15 @@ def ejecutar_inspeccion_segmentada(
         fusion = datos.fusionar_detecciones_vecinas(
             analisis_id, geo.latlon_a_pixeles_globales
         )
+        # Y después de unir las piezas, sacar las repetidas: YOLO hace NMS sobre
+        # las cajas y no sobre las máscaras, así que la misma mancha puede quedar
+        # detectada dos veces, una adentro de la otra. No se nota en el mapa pero
+        # sí al sumar superficies, que es lo que hacen el informe y el dashboard.
+        # Va después de la fusión porque una mancha recién armada de dos mitades
+        # puede contener detecciones que antes no contenía.
+        supresion = datos.suprimir_detecciones_anidadas(analisis_id)
+        fusion["suprimidas"] = supresion["suprimidas"]
+
         if fusion["grupos"]:
             # Cada grupo deja una detección donde había varias
             total_acumuladas -= fusion["fusionadas"] - fusion["grupos"]
@@ -131,6 +140,14 @@ def ejecutar_inspeccion_segmentada(
                 f"[FUSION] analisis={analisis_id}: {fusion['fusionadas']} detecciones "
                 f"partidas por el borde de una celda quedaron en {fusion['grupos']}"
             )
+        if supresion["suprimidas"]:
+            total_acumuladas -= supresion["suprimidas"]
+            print(
+                f"[DUPLICADAS] analisis={analisis_id}: {supresion['suprimidas']} detecciones "
+                f"contenidas en otra de la misma clase"
+            )
+
+        if fusion["grupos"] or supresion["suprimidas"]:
             # El navegador ya recibió las piezas sueltas por SSE; este chunk le
             # avisa que lo guardado cambió y con cuánto, para que las recargue.
             yield {

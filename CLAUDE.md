@@ -49,11 +49,19 @@ Compartido y despliegue:
   misma celda (manchas que el modelo separó a propósito) y 54 cruzaban el borde.
   El navegador ya recibió las piezas sueltas por SSE, así que el chunk final
   avisa con `fusion` y hay que recargar para ver lo guardado.
-- **Las superficies por detección se superponen entre sí.** Sumar
-  `area_m2` de todas las detecciones de un análisis da un 12-15 % de más que
-  `ST_Area(ST_Union(contorno))`: el modelo emite instancias que se pisan (211
-  pares dentro de la misma celda con 69 % de solape medio en un análisis de
-  463). La fusión entre celdas no toca eso.
+- **Después de fusionar se suprimen las detecciones anidadas.** YOLO hace NMS
+  sobre las cajas y no sobre las máscaras, así que la misma mancha puede quedar
+  detectada dos veces, una adentro de la otra: medido, el 74 % de los pares que
+  se cruzan tienen una con el 90 % o más de su superficie dentro de la otra.
+  `datos.suprimir_detecciones_anidadas` borra la chica y deja la grande, que la
+  contiene (no la más confiable: en esos pares la grande es la más confiable
+  apenas el 56 % de las veces).
+- **Sumar `area_m2` por detección NO da la superficie afectada.** Aun después de
+  suprimir quedan pares que se pisan parcialmente, y ese suelo se cuenta dos
+  veces: la suma da ~6 % de más (18 % en un análisis del pipeline viejo). La
+  respuesta correcta es `datos.superficie_real`, que la calcula con
+  `ST_Area(ST_Union(contorno))` y es lo que usa el informe en PDF. Su total no
+  es la suma de las clases, porque dos clases también pueden pisarse.
 - **El dashboard sigue midiendo cobertura por celdas de 640 px,** no por superficie de los contornos (`datos.estadisticas_dashboard`): ahora que hay áreas reales, eso se puede mejorar.
 
 **`project/mvp/` es el monolito anterior** y queda como referencia: un backend FastAPI que hace todo (teselas, lectura del raster e inferencia) y el front en React. Gran parte de este archivo todavía describe el MVP; la sección 9 de `docs/arquitectura.md` dice a dónde fue cada archivo. `project/entrenamiento` es un archivo vacío que quedó de la re-estructuración.

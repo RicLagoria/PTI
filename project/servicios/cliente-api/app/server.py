@@ -283,6 +283,7 @@ def exportar_pdf(imagen_id: str, analisis_id: int, usuario=Depends(auth.usuario_
         analisis=analisis,
         detecciones=detecciones,
         usuario_nombre=analisis.get("usuario_nombre"),
+        superficies=datos.superficie_real(analisis_id),
     )
     return Response(
         content=pdf_bytes,

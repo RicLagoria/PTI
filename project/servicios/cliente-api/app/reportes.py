@@ -78,7 +78,19 @@ def _imagen_con_marcas(ruta_archivo: str, ancho_px: int, alto_px: int, deteccion
     return Image.alpha_composite(img.convert("RGBA"), capa).convert("RGB")
 
 
-def generar_pdf(ortomosaico: Dict, analisis: Dict, detecciones: List[Dict], usuario_nombre: str) -> bytes:
+def generar_pdf(
+    ortomosaico: Dict,
+    analisis: Dict,
+    detecciones: List[Dict],
+    usuario_nombre: str,
+    superficies: Dict,
+) -> bytes:
+    """
+    `superficies` viene de datos.superficie_real: la superficie que cubren
+    las detecciones contando una sola vez el suelo que comparten dos que se
+    pisan. Sumar el area_m2 de cada detección daría más, y es justamente el
+    número que un informe agronómico no puede tener inflado.
+    """
     estilos = getSampleStyleSheet()
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=18 * mm, bottomMargin=15 * mm, leftMargin=18 * mm, rightMargin=18 * mm)
@@ -103,7 +115,7 @@ def generar_pdf(ortomosaico: Dict, analisis: Dict, detecciones: List[Dict], usua
         ["Detecciones totales", str(len(detecciones))],
     ]
 
-    area_total = sum(d.get("area_m2") or 0.0 for d in detecciones)
+    area_total = superficies.get("total_m2") or 0.0
     if area_total > 0:
         filas_meta.append(["Superficie afectada", _superficie(area_total)])
     tabla_meta = Table(filas_meta, colWidths=[55 * mm, 110 * mm])
@@ -127,12 +139,15 @@ def generar_pdf(ortomosaico: Dict, analisis: Dict, detecciones: List[Dict], usua
         elementos.append(RLImage(img_buffer, width=ancho_doc, height=alto_img))
         elementos.append(Spacer(1, 6 * mm))
 
+        por_clase = superficies.get("por_clase") or {}
         conteo: Dict[str, Dict] = {}
         for d in detecciones:
             c = conteo.setdefault(d["clase"], {"cantidad": 0, "suma_confianza": 0.0, "area_m2": 0.0})
             c["cantidad"] += 1
             c["suma_confianza"] += d["confianza"]
-            c["area_m2"] += d.get("area_m2") or 0.0
+            # La superficie de la clase no es la suma de sus detecciones: dos que
+            # se pisan comparten suelo. La unión la calcula PostGIS por clase.
+            c["area_m2"] = por_clase.get(d["clase"], 0.0)
 
         # La superficie afectada solo se puede informar si el análisis corrió con
         # un modelo de segmentación: de un punto no sale ningún área
@@ -145,7 +160,10 @@ def generar_pdf(ortomosaico: Dict, analisis: Dict, detecciones: List[Dict], usua
 
         filas_clase = [encabezados]
         for clase, c in sorted(conteo.items(), key=lambda kv: -kv[1]["cantidad"]):
-            fila = ["", clase, str(c["cantidad"]), f"{round(100 * c['suma_confianza'] / c['cantidad'])}%"]
+            # `confianza` ya viene en porcentaje desde ia-inferencia (17.81, no
+            # 0.1781), así que acá no se vuelve a multiplicar por 100: el informe
+            # venía mostrando "1781%".
+            fila = ["", clase, str(c["cantidad"]), f"{round(c['suma_confianza'] / c['cantidad'])}%"]
             if hay_areas:
                 fila.append(_superficie(c["area_m2"]))
             filas_clase.append(fila)
