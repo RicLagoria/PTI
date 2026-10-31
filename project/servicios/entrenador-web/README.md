@@ -11,13 +11,23 @@ reenvía `/api/*` a `ia-entrenamiento-api`.
 ## Pantallas
 
 - **Aportes** (`/`): subir un ZIP de labelme y ver los ya guardados, con el
-  conteo de cajas por clase. Si la API rechaza un aporte, muestra qué
-  etiquetas no existen o qué archivos fallaron.
+  conteo de etiquetas por clase. Si la API rechaza un aporte, muestra qué
+  etiquetas no existen o qué archivos fallaron; si lo acepta pero algo quedó
+  raro, lo avisa (un aporte sin contornos solo sirve para entrenar cajas, y uno
+  etiquetado con rectángulos tiene contornos que no aportan forma).
 - **Entrenamientos** (`/entrenamientos`): elegir aportes, épocas, tamaño de
-  imagen y pesos de partida, y encolar. Los trabajos en cola o en curso se
-  siguen en vivo por SSE (`/entrenamientos/{id}/stream`).
-- **Modelos** (`/modelos`): versiones del registro con sus métricas, la
-  diferencia de mAP50-95 contra la activa y el botón para activar otra.
+  imagen, pesos de partida y **dónde entrenar (CPU o GPU)**, y encolar. Los
+  trabajos en cola o en curso se siguen en vivo por SSE
+  (`/entrenamientos/{id}/stream`).
+
+  Los pesos de partida son los que deciden qué se entrena: `yolov8n-seg.pt`
+  contornos, `yolov8n.pt` cajas. La opción GPU se habilita según
+  `GET /dispositivos`, y cuando no está disponible se muestra qué falta (ver el
+  README de `ia-entrenamiento`).
+- **Modelos** (`/modelos`): versiones del registro con su tarea (contornos o
+  cajas) y sus métricas, la diferencia de mAP50-95 contra la activa y el botón
+  para activar otra. Activar una de cajas o una de contornos cambia lo que ve el
+  cliente en el mapa: puntos o manchas.
 
 No hay login: cualquiera que llegue a la página puede entrenar y activar
 modelos. Mientras sea así, el puerto no debería quedar expuesto fuera de la red

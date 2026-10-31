@@ -5,6 +5,7 @@ en disco es el .tif en sí (almacen.py), todo lo consultable vive acá.
 """
 import csv
 import io
+import json
 from typing import Dict, List, Optional
 
 from auth import conexion
@@ -160,6 +161,33 @@ def listar_analisis(ortomosaico_id: str) -> List[Dict]:
 # ==========================================================
 # Detecciones
 # ==========================================================
+def _contorno_geojson(deteccion: Dict) -> Optional[str]:
+    """
+    El contorno de una detección como GeoJSON para pasárselo a PostGIS, o None si
+    el análisis corrió con un modelo de detección (no hay contorno).
+
+    georref lo entrega como [[lat, lon], ...] porque así lo dibuja Leaflet;
+    GeoJSON y PostGIS van al revés, lon primero. El anillo se cierra acá: un
+    polígono de GeoJSON repite el primer vértice al final y los contornos que
+    devuelve ia-inferencia no lo traen.
+    """
+    contorno = deteccion.get("contorno")
+    if not contorno or len(contorno) < 3:
+        return None
+    anillo = [[lon, lat] for lat, lon in contorno]
+    if anillo[0] != anillo[-1]:
+        anillo.append(anillo[0])
+    return json.dumps({"type": "Polygon", "coordinates": [anillo]})
+
+
+def _contorno_plano(deteccion: Dict) -> Optional[List[int]]:
+    """El contorno en píxeles como array plano para contorno_global_px."""
+    contorno = deteccion.get("contorno_global_px")
+    if not contorno:
+        return None
+    return [round(v) for punto in contorno for v in punto]
+
+
 def insertar_detecciones(analisis_id: int, detecciones: List[Dict]) -> None:
     """Bulk insert de un bloque del streaming. detecciones viene en el
     formato de georref.traducir_deteccion (gps_centro, box_global_px, etc)."""
@@ -175,14 +203,28 @@ def insertar_detecciones(analisis_id: int, detecciones: List[Dict]) -> None:
             d["box_global_px"],
             d["fila"],
             d["col"],
+            _contorno_geojson(d),
+            _contorno_plano(d),
         )
         for d in detecciones
     ]
     with conexion() as con:
+        # El contorno de una máscara puede salir con el borde cruzado, y un
+        # polígono así no es válido en PostGIS: ST_MakeValid lo arregla, pero
+        # parte el anillo en varios, de ahí el MULTIPOLYGON de la columna.
+        # CollectionExtract(…, 3) se queda solo con las partes con superficie
+        # (MakeValid puede devolver también los bordes como líneas). Si el
+        # GeoJSON es NULL toda la expresión da NULL, que es lo que queremos para
+        # un análisis sin contornos.
         con.cursor().executemany(
             """
-            INSERT INTO detecciones (analisis_id, clase, confianza, ubicacion, box_global_px, fila, col)
-            VALUES (%s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, %s)
+            INSERT INTO detecciones
+                (analisis_id, clase, confianza, ubicacion, box_global_px, fila, col,
+                 contorno, contorno_global_px)
+            VALUES (%s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, %s,
+                    ST_Multi(ST_CollectionExtract(
+                        ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 3)),
+                    %s)
             """,
             filas,
         )
@@ -190,31 +232,66 @@ def insertar_detecciones(analisis_id: int, detecciones: List[Dict]) -> None:
 
 
 def obtener_detecciones(analisis_id: int) -> List[Dict]:
-    """Para volver a ver un análisis pasado sin tener que re-ejecutarlo."""
+    """
+    Para volver a ver un análisis pasado sin tener que re-ejecutarlo. Devuelve lo
+    mismo que georref.traducir_deteccion, así el front no distingue un análisis
+    en vivo de uno guardado.
+
+    El contorno vuelve a salir como [[lat, lon], ...] (orden de Leaflet) y, si el
+    multipolígono quedó partido en varias piezas, se devuelve la más grande: el
+    anillo principal es la mancha y los restos son esquirlas de unos píxeles.
+    La superficie, en cambio, se mide sobre todas las piezas.
+    """
     with conexion() as con:
         filas = con.execute(
             """
             SELECT clase, confianza, box_global_px, fila, col,
-                   ST_Y(ubicacion) AS lat, ST_X(ubicacion) AS lon
+                   ST_Y(ubicacion) AS lat, ST_X(ubicacion) AS lon,
+                   contorno_global_px,
+                   ST_AsGeoJSON(
+                       (SELECT geom FROM ST_Dump(contorno)
+                        ORDER BY ST_Area(geom) DESC LIMIT 1)
+                   ) AS contorno_json,
+                   -- Proyectado a geography para que el área salga en metros y
+                   -- no en grados cuadrados, que no significan nada
+                   ST_Area(contorno::geography) AS area_m2
             FROM detecciones WHERE analisis_id = %s ORDER BY id
             """,
             (analisis_id,),
         ).fetchall()
-        return [
-            {
-                "fila": f["fila"],
-                "col": f["col"],
-                "clase": f["clase"],
-                "confianza": f["confianza"],
-                "box_global_px": f["box_global_px"],
-                "gps_centro": {"lat": f["lat"], "lon": f["lon"]},
-            }
-            for f in filas
-        ]
+
+    detecciones = []
+    for f in filas:
+        deteccion = {
+            "fila": f["fila"],
+            "col": f["col"],
+            "clase": f["clase"],
+            "confianza": f["confianza"],
+            "box_global_px": f["box_global_px"],
+            "gps_centro": {"lat": f["lat"], "lon": f["lon"]},
+        }
+        if f["contorno_json"]:
+            anillo = json.loads(f["contorno_json"])["coordinates"][0]
+            deteccion["contorno"] = [[lat, lon] for lon, lat in anillo]
+            deteccion["area_m2"] = round(float(f["area_m2"]), 2)
+        if f["contorno_global_px"]:
+            plano = f["contorno_global_px"]
+            deteccion["contorno_global_px"] = [
+                [plano[i], plano[i + 1]] for i in range(0, len(plano) - 1, 2)
+            ]
+        detecciones.append(deteccion)
+    return detecciones
 
 
 def exportar_geojson(analisis_id: int) -> Dict:
-    """PostGIS arma el FeatureCollection directo, no hay que escribirlo a mano."""
+    """
+    PostGIS arma el FeatureCollection directo, no hay que escribirlo a mano.
+
+    La geometría de cada detección es su contorno cuando lo tiene y el punto
+    cuando no (análisis con un modelo de detección). Esa es la diferencia que se
+    nota al abrir el archivo en QGIS: polígonos que se pueden medir y recortar
+    contra el lote, en vez de un montón de puntos.
+    """
     with conexion() as con:
         fila = con.execute(
             """
@@ -223,9 +300,13 @@ def exportar_geojson(analisis_id: int) -> Dict:
                 'features', COALESCE(jsonb_agg(
                     jsonb_build_object(
                         'type', 'Feature',
-                        'geometry', ST_AsGeoJSON(ubicacion)::jsonb,
+                        'geometry', COALESCE(ST_AsGeoJSON(contorno)::jsonb, ST_AsGeoJSON(ubicacion)::jsonb),
                         'properties', jsonb_build_object(
-                            'clase', clase, 'confianza', confianza, 'fila', fila, 'col', col
+                            'clase', clase, 'confianza', confianza, 'fila', fila, 'col', col,
+                            'area_m2', ROUND(ST_Area(contorno::geography)::numeric, 2),
+                            -- El centro sigue estando aunque la geometría sea el
+                            -- contorno: es con lo que se ubica en el campo
+                            'lat', ST_Y(ubicacion), 'lon', ST_X(ubicacion)
                         )
                     )
                 ), '[]'::jsonb)
@@ -241,9 +322,13 @@ def exportar_csv(analisis_id: int) -> str:
     detecciones = obtener_detecciones(analisis_id)
     buffer = io.StringIO()
     escritor = csv.writer(buffer)
-    escritor.writerow(["clase", "confianza", "lat", "lon", "fila", "col"])
+    # area_m2 queda vacía en los análisis sin contorno
+    escritor.writerow(["clase", "confianza", "lat", "lon", "area_m2", "fila", "col"])
     for d in detecciones:
-        escritor.writerow([d["clase"], d["confianza"], d["gps_centro"]["lat"], d["gps_centro"]["lon"], d["fila"], d["col"]])
+        escritor.writerow([
+            d["clase"], d["confianza"], d["gps_centro"]["lat"], d["gps_centro"]["lon"],
+            d.get("area_m2", ""), d["fila"], d["col"],
+        ])
     return buffer.getvalue()
 
 

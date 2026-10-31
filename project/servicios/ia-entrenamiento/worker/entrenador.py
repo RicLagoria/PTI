@@ -10,17 +10,23 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "nucleo"))
 
 from ultralytics import YOLO
+import dispositivos
 import ensamblado
 import registro
 import trabajos
 from evaluacion import evaluar_modelo
 
-# Métricas de validación que Ultralytics deja en trainer.metrics al cerrar cada época
+# Métricas de validación que Ultralytics deja en trainer.metrics al cerrar cada
+# época. Las (M) son de las máscaras y solo existen en segmentación.
 METRICAS_POR_EPOCA = {
     "metrics/precision(B)": "precision",
     "metrics/recall(B)": "recall",
     "metrics/mAP50(B)": "map50",
     "metrics/mAP50-95(B)": "map50_95",
+    "metrics/precision(M)": "precision_mascara",
+    "metrics/recall(M)": "recall_mascara",
+    "metrics/mAP50(M)": "map50_mascara",
+    "metrics/mAP50-95(M)": "map50_95_mascara",
 }
 
 
@@ -115,6 +121,9 @@ def ejecutar_un_trabajo(trabajo: dict):
     imgsz = trabajo.get("imgsz", 640)
     pesos_base = trabajo.get("pesos_base", "yolov8n.pt")
     fraccion_validacion = trabajo.get("fraccion_validacion", ensamblado.FRACCION_VALIDACION)
+    # Los trabajos encolados antes de que existiera segmentación no traen tarea
+    tarea = trabajo.get("tarea") or registro.tarea_de_pesos(pesos_base) or registro.TAREA_POR_DEFECTO
+    dispositivo = trabajo.get("dispositivo", dispositivos.DISPOSITIVO_POR_DEFECTO)
 
     # Cada intento trabaja en TRABAJOS_DIR/<id>/intento-N/: el dataset armado y la corrida
     # de Ultralytics (que si no se escribiría en ./runs, dentro del contenedor). Separados
@@ -130,6 +139,13 @@ def ejecutar_un_trabajo(trabajo: dict):
         for anterior in range(1, intento):
             shutil.rmtree(trabajos.carpeta_intento(trabajo_id, anterior) / "dataset", ignore_errors=True)
 
+        # Antes de copiar el dataset: si se pidió GPU y este worker no la tiene,
+        # el trabajo falla en el momento con el motivo, en vez de caerse a CPU y
+        # tardar horas sin que nadie se entere
+        device, lote = dispositivos.resolver(dispositivo)
+        placa = dispositivos.etiqueta(dispositivo)
+        print(f"[WORKER] Tarea {tarea} en {dispositivo}{f' ({placa})' if placa else ''}, lote de {lote}.")
+
         # La API ya lo validó, pero el registro pudo cambiar mientras el trabajo esperaba en la cola
         pesos = registro.resolver_pesos_base(pesos_base)
         if pesos is None:
@@ -137,7 +153,7 @@ def ejecutar_un_trabajo(trabajo: dict):
 
         ruta_yaml, resumen = ensamblado.armar_dataset(
             trabajo["datasets"], carpeta_dataset, semilla=trabajo_id,
-            fraccion_validacion=fraccion_validacion, al_copiar=progreso.latido,
+            fraccion_validacion=fraccion_validacion, al_copiar=progreso.latido, tarea=tarea,
         )
         print(f"[WORKER] Dataset armado: {resumen['imagenes_train']} imágenes de entrenamiento, "
               f"{resumen['imagenes_val']} de validación.")
@@ -188,8 +204,8 @@ def ejecutar_un_trabajo(trabajo: dict):
             data=str(ruta_yaml),
             epochs=epocas,
             imgsz=imgsz,
-            batch=2,
-            device="cpu",
+            batch=lote,
+            device=device,
             workers=2,
             project=str(carpeta_trabajo),
             name="corrida",
@@ -206,7 +222,7 @@ def ejecutar_un_trabajo(trabajo: dict):
         try:
             evaluacion = evaluar_modelo(
                 str(carpeta_corrida / "weights" / "best.pt"), ruta_yaml, imgsz, carpeta_trabajo, resumen["clases"],
-                al_avanzar=progreso.latido,
+                al_avanzar=progreso.latido, device=device, batch=lote,
             )
             with open(carpeta_corrida / "evaluacion.json", "w", encoding="utf-8") as f:
                 json.dump(evaluacion, f, indent=2, ensure_ascii=False)
@@ -227,6 +243,12 @@ def ejecutar_un_trabajo(trabajo: dict):
             "epocas": epocas,
             "imgsz": imgsz,
             "pesos_base": pesos_base,
+            # Lo que sabe hacer esta versión: con "segment" el análisis devuelve
+            # contornos, con "detect" solo cajas (ia-inferencia lo lee del .pt)
+            "tarea": tarea,
+            "dispositivo": dispositivo,
+            "placa": placa,
+            "lote": lote,
             "clases": resumen["clases"],
             "imagenes_train": resumen["imagenes_train"],
             "imagenes_val": resumen["imagenes_val"],

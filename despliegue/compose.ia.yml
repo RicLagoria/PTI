@@ -31,6 +31,13 @@ services:
   ia-entrenamiento-worker:
     build: ../project/servicios/ia-entrenamiento
     command: ["python", "worker/entrenador.py"]
+    # El dataloader de YOLO le pasa las imágenes a sus procesos auxiliares
+    # (workers=2, ver worker/entrenador.py) por memoria compartida, y los 64 MB
+    # que Docker le da a /dev/shm por defecto no alcanzan: un lote de GPU (16
+    # imágenes de 640 px con sus máscaras) lo llena y el proceso muere con
+    # "Bus error ... out of shared memory" antes de la primera época. En CPU el
+    # lote es de 2 y entraba justo, así que el problema aparece recién en GPU.
+    shm_size: 2gb
     environment:
       MODELOS_DIR: /datos/modelos
       DATASETS_DIR: /datos/datasets

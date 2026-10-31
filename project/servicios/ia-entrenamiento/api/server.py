@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "nucleo"))
 
 import clases
 import datasets
+import dispositivos
 import ensamblado
 import registro
 import trabajos
@@ -54,9 +55,12 @@ class SolicitudEntrenamiento(BaseModel):
     datasets: List[str] = Field(..., min_length=1)
     epocas: int = Field(50, ge=1, le=300)
     imgsz: int = Field(640, ge=320, le=1280, multiple_of=32)
-    pesos_base: str = "yolov8n.pt"
+    # De los pesos sale la tarea: yolov8n-seg.pt entrena contornos (segment) y
+    # yolov8n.pt cajas (detect). No se pide aparte para que no puedan discrepar.
+    pesos_base: str = "yolov8n-seg.pt"
     # Parte de cada aporte que se separa para validar (y para la evaluación final)
     fraccion_validacion: float = Field(0.25, ge=0.1, le=0.5)
+    dispositivo: str = Field(dispositivos.DISPOSITIVO_POR_DEFECTO, pattern="^(cpu|gpu)$")
 
 
 @app.get("/salud")
@@ -68,6 +72,16 @@ def salud():
 def listar_clases():
     """Retorna la taxonomía canónica de clases."""
     return clases.obtener_clases_canonicas()
+
+
+@app.get("/dispositivos")
+def listar_dispositivos():
+    """
+    Si se puede entrenar en GPU acá, y si no, por qué. entrenador-web lo usa
+    para habilitar la opción; ver el docstring de nucleo/dispositivos.py sobre
+    por qué esto describe a la API y no al worker.
+    """
+    return dispositivos.describir()
 
 
 @app.get("/datasets")
@@ -145,11 +159,30 @@ def crear_entrenamiento(solicitud: SolicitudEntrenamiento):
             ),
         })
 
-    if registro.resolver_pesos_base(solicitud.pesos_base) is None:
+    tarea = registro.tarea_de_pesos(solicitud.pesos_base)
+    if tarea is None:
         raise HTTPException(status_code=400, detail={
             "mensaje": f"Pesos de partida no permitidos: {solicitud.pesos_base}",
             "pesos_base_validos": list(registro.PESOS_BASE_OFICIALES) + [m["version"] for m in registro.listar_modelos()],
         })
+
+    # Un modelo segment se entrena con los contornos del aporte, y los aportes
+    # subidos antes de que se guardaran no los tienen. El ensamblado lo vuelve a
+    # verificar (el aporte puede borrarse mientras el trabajo espera en la cola),
+    # pero cortar acá evita encolar algo que se sabe que va a fallar.
+    if tarea == "segment":
+        sin_contornos = [i for i in ids if not datasets.tiene_contornos(i)]
+        if sin_contornos:
+            nombres = [(datasets.leer_meta(i) or {}).get("nombre", i) for i in sin_contornos]
+            raise HTTPException(status_code=400, detail={
+                "mensaje": (
+                    f"Para entrenar segmentación hacen falta aportes con contornos, y estos no los "
+                    f"tienen: {', '.join(nombres)}. Se etiquetaron solo con cajas, o se subieron antes "
+                    f"de que el sistema guardara los contornos: volvé a subir esos ZIP de labelme (los "
+                    f"polígonos ya están en sus JSON), o entrená un modelo detect."
+                ),
+                "datasets_sin_contornos": sin_contornos,
+            })
 
     trabajo = trabajos.encolar_trabajo(
         datasets=ids,
@@ -157,6 +190,8 @@ def crear_entrenamiento(solicitud: SolicitudEntrenamiento):
         imgsz=solicitud.imgsz,
         pesos_base=solicitud.pesos_base,
         fraccion_validacion=solicitud.fraccion_validacion,
+        tarea=tarea,
+        dispositivo=solicitud.dispositivo,
     )
     return trabajo
 

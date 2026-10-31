@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button, Chip, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader, Progress } from "@heroui/react";
 import { ArrowRight, Ban, Clock, XCircle } from "lucide-react";
-import { cancelarEntrenamiento, type EstadoTrabajo, type Trabajo } from "../../services/EntrenamientoService";
+import { cancelarEntrenamiento, ETIQUETA_TAREA, type EstadoTrabajo, type Trabajo } from "../../services/EntrenamientoService";
 import { useCuentaRegresiva } from "../../hooks/useCuentaRegresiva";
 import { duracion, fecha, horaDentroDe, numero, plural, porcentaje } from "../../utils/formato";
 import Metrica from "../comunes/Metrica";
@@ -109,6 +109,8 @@ export default function TarjetaTrabajo({
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-400">
             {fecha(trabajo.fecha_creacion)} · {trabajo.epocas} épocas · imgsz {trabajo.imgsz} · desde {trabajo.pesos_base}
+            {trabajo.tarea && ` · ${ETIQUETA_TAREA[trabajo.tarea].toLowerCase()}`}
+            {trabajo.dispositivo && ` · en ${trabajo.dispositivo.toUpperCase()}`}
             {trabajo.fraccion_validacion !== undefined && ` · valida ${Math.round(trabajo.fraccion_validacion * 100)} %`}
             {trabajo.intentos !== undefined && trabajo.intentos > 1 && ` · intento ${trabajo.intentos} (el worker anterior dejó de responder)`}
             {trabajo.worker && trabajo.worker !== "cancelado" && (
@@ -166,7 +168,13 @@ export default function TarjetaTrabajo({
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <Metrica etiqueta="Pérdida" valor={numero(m.perdida, 3)} detalle={`época ${trabajo.progreso_epocas}`} />
               <Metrica etiqueta="mAP50-95" valor={porcentaje(m.map50_95)} />
-              <Metrica etiqueta="mAP50" valor={porcentaje(m.map50)} />
+              {/* En segmentación lo que importa es si el contorno sigue a la
+                  mancha, no solo si la encuentra: esa es la métrica de máscara */}
+              {m.map50_95_mascara !== undefined ? (
+                <Metrica etiqueta="mAP50-95 máscara" valor={porcentaje(m.map50_95_mascara)} />
+              ) : (
+                <Metrica etiqueta="mAP50" valor={porcentaje(m.map50)} />
+              )}
               <Metrica etiqueta="Recall" valor={porcentaje(m.recall)} />
             </div>
           )}

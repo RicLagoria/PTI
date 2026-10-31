@@ -17,6 +17,11 @@ from clases import obtener_clases_canonicas
 
 FRACCION_VALIDACION = 0.25
 
+# De qué carpeta del aporte salen las etiquetas según lo que se entrena: cajas
+# para un modelo "detect", contornos para uno "segment" (ver conversion_labelme).
+CARPETA_ETIQUETAS_POR_TAREA = {"detect": "etiquetas", "segment": "contornos"}
+TAREA_POR_DEFECTO = "segment"
+
 
 def cantidad_validacion(total: int, fraccion: float) -> int:
     """
@@ -39,16 +44,27 @@ def armar_dataset(
     semilla: str,
     fraccion_validacion: float = FRACCION_VALIDACION,
     al_copiar: Optional[Callable[[], None]] = None,
+    tarea: str = TAREA_POR_DEFECTO,
 ) -> Tuple[Path, Dict]:
     """
     Copia los aportes a destino/{images,labels}/{train,val}/ y escribe
     destino/dataset.yaml. Devuelve (ruta del yaml, resumen).
+
+    `tarea` elige el formato de las etiquetas que se copian ("detect" = cajas,
+    "segment" = contornos): las dos conviven en el aporte y Ultralytics deduce
+    de las líneas qué está leyendo, así que la carpeta de origen es lo único que
+    cambia. Un aporte sin contornos no sirve para segmentación y se rechaza acá.
 
     El split se hace dentro de cada aporte, para que todos tengan imágenes en
     validación, y es reproducible: depende solo de `semilla` (el id del trabajo).
     `al_copiar` se llama después de cada imagen: con aportes grandes la copia tarda, y
     el worker lo usa para seguir dando latido.
     """
+    carpeta_etiquetas = CARPETA_ETIQUETAS_POR_TAREA.get(tarea)
+    if carpeta_etiquetas is None:
+        raise ErrorEnsamblado(
+            f"Tarea desconocida: {tarea!r}. Las válidas son {sorted(CARPETA_ETIQUETAS_POR_TAREA)}."
+        )
     clases = obtener_clases_canonicas()
     shutil.rmtree(destino, ignore_errors=True)
     for parte in ("train", "val"):
@@ -58,6 +74,7 @@ def armar_dataset(
     azar = random.Random(semilla)
     resumen = {
         "clases": clases,
+        "tarea": tarea,
         "fraccion_validacion": fraccion_validacion,
         "imagenes_train": 0,
         "imagenes_val": 0,
@@ -82,6 +99,14 @@ def armar_dataset(
                 f"contratos/clases.json. Hay que volver a subir ese aporte."
             )
 
+        if tarea == "segment" and not datasets.tiene_contornos(dataset_id):
+            raise ErrorEnsamblado(
+                f"El aporte '{meta.get('nombre', dataset_id)}' no tiene etiquetas de segmentación, así que "
+                f"no se puede entrenar un modelo segment con él: se etiquetó solo con cajas, o se subió "
+                f"antes de que el sistema guardara los contornos. Volvé a subir el ZIP de labelme (los "
+                f"polígonos ya están en esos JSON) o entrená un modelo detect."
+            )
+
         descartadas = 0
         imagenes = sorted(p for p in (carpeta / "imagenes").iterdir() if p.is_file())
         azar.shuffle(imagenes)
@@ -92,8 +117,8 @@ def armar_dataset(
             # El prefijo evita choques de nombres entre aportes distintos
             nombre = f"{dataset_id}_{imagen.stem}"
             shutil.copy2(imagen, destino / "images" / parte / f"{nombre}{imagen.suffix}")
-            lineas = (carpeta / "etiquetas" / f"{imagen.stem}.txt").read_text(encoding="utf-8").splitlines()
-            # Cajas de clases retiradas de la lista canónica: quedan como fondo
+            lineas = (carpeta / carpeta_etiquetas / f"{imagen.stem}.txt").read_text(encoding="utf-8").splitlines()
+            # Etiquetas de clases retiradas de la lista canónica: quedan como fondo
             vigentes = [l for l in lineas if l.strip() and int(l.split()[0]) < len(clases)]
             descartadas += len([l for l in lineas if l.strip()]) - len(vigentes)
             (destino / "labels" / parte / f"{nombre}.txt").write_text(
@@ -106,7 +131,7 @@ def armar_dataset(
         resumen["imagenes_val"] += cantidad_val
         resumen["por_dataset"][dataset_id] = {"train": len(imagenes) - cantidad_val, "val": cantidad_val}
         if descartadas:
-            resumen["por_dataset"][dataset_id]["cajas_de_clases_retiradas"] = descartadas
+            resumen["por_dataset"][dataset_id]["etiquetas_de_clases_retiradas"] = descartadas
 
     if resumen["imagenes_train"] == 0 or resumen["imagenes_val"] == 0:
         raise ErrorEnsamblado(

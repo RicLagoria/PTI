@@ -52,6 +52,19 @@ def carpeta_de(dataset_id: str) -> Optional[Path]:
     return carpeta if (carpeta / "meta.json").is_file() else None
 
 
+def tiene_contornos(dataset_id: str) -> bool:
+    """
+    Si el aporte trae etiquetas de segmentación. Falso en los aportes subidos
+    antes de que existieran (no tienen la carpeta) y en los que se convirtieron
+    sin que ninguna forma dejara un contorno usable.
+    """
+    carpeta = carpeta_de(dataset_id)
+    if carpeta is None or not (carpeta / "contornos").is_dir():
+        return False
+    meta = leer_meta(dataset_id) or {}
+    return bool(meta.get("tiene_segmentacion"))
+
+
 def leer_meta(dataset_id: str) -> Optional[Dict]:
     carpeta = carpeta_de(dataset_id)
     if carpeta is None:
@@ -100,7 +113,13 @@ def _nombre_unico(base: str, usados: set) -> str:
 def guardar_dataset_zip(archivo_zip: BinaryIO, nombre: str, archivo_original: str) -> Dict:
     """
     Valida un ZIP de labelme, lo convierte a YOLO con los índices canónicos y
-    lo guarda como DATASETS_DIR/<id>/{imagenes,etiquetas}/ + meta.json.
+    lo guarda como DATASETS_DIR/<id>/{imagenes,etiquetas,contornos}/ + meta.json.
+
+    Se guardan los dos formatos de etiqueta de cada forma, porque recién al
+    encolar el entrenamiento se sabe qué se va a entrenar: "etiquetas" tiene las
+    cajas (modelos detect) y "contornos" los polígonos (modelos segment). Ver
+    conversion_labelme. Los aportes subidos antes de que existiera segmentación
+    no tienen "contornos": ensamblado los rechaza si se pide un modelo segment.
 
     Se arma todo en una carpeta temporal y recién al final se renombra, así un
     aporte rechazado o una subida cortada nunca queda a medias en el listado.
@@ -130,8 +149,10 @@ def guardar_dataset_zip(archivo_zip: BinaryIO, nombre: str, archivo_original: st
 
         carpeta_imagenes = temporal / "imagenes"
         carpeta_etiquetas = temporal / "etiquetas"
+        carpeta_contornos = temporal / "contornos"
         carpeta_imagenes.mkdir(parents=True)
         carpeta_etiquetas.mkdir(parents=True)
+        carpeta_contornos.mkdir(parents=True)
 
         usados: set = set()
         for anotacion in anotaciones:
@@ -141,10 +162,14 @@ def guardar_dataset_zip(archivo_zip: BinaryIO, nombre: str, archivo_original: st
                 destino.write_bytes(anotacion["bytes"])
             else:
                 shutil.copy2(anotacion["ruta"], destino)
-            texto = "\n".join(anotacion["lineas"])
-            (carpeta_etiquetas / f"{nombre_archivo}.txt").write_text(
-                texto + "\n" if texto else "", encoding="utf-8"
-            )
+            for carpeta, lineas in (
+                (carpeta_etiquetas, anotacion["lineas"]),
+                (carpeta_contornos, anotacion["lineas_contorno"]),
+            ):
+                texto = "\n".join(lineas)
+                (carpeta / f"{nombre_archivo}.txt").write_text(
+                    texto + "\n" if texto else "", encoding="utf-8"
+                )
 
         shutil.rmtree(extraido)
 

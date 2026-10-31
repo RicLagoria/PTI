@@ -33,26 +33,49 @@ def _color_de(clase: str) -> tuple:
     return COLOR_POR_CLASE.get(clase, COLOR_DEFECTO)
 
 
+def _superficie(metros2: float) -> str:
+    """Superficie legible: una mancha se mide en m², un lote entero en hectáreas."""
+    if metros2 >= 10_000:
+        return f"{metros2 / 10_000:,.2f} ha".replace(",", ".")
+    return f"{round(metros2):,} m²".replace(",", ".")
+
+
 def _imagen_con_marcas(ruta_archivo: str, ancho_px: int, alto_px: int, detecciones: List[Dict]) -> Image.Image:
-    """Preview del COG completo (liviano, no la imagen original de gigas) con
-    un punto por detección, reproyectando box_global_px a la escala del preview."""
+    """
+    Preview del COG completo (liviano, no la imagen original de gigas) con las
+    detecciones encima, reproyectando los píxeles globales a la escala del preview.
+
+    Una detección con contorno se dibuja como la mancha que es, rellena y
+    translúcida para que se siga viendo el cultivo debajo; una sin contorno
+    (análisis con un modelo de detección) sigue siendo un punto. El relleno va
+    en una capa RGBA aparte porque PIL no mezcla alfa dibujando directo sobre
+    una imagen RGB.
+    """
     with Reader(ruta_archivo) as cog:
         preview = cog.preview(max_size=1100)
         png_bytes = preview.render(img_format="PNG", **img_profiles.get("png"))
 
     img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
-    dibujo = ImageDraw.Draw(img)
     escala_x = img.width / ancho_px
     escala_y = img.height / alto_px
 
+    capa = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    dibujo = ImageDraw.Draw(capa)
+
     for det in detecciones:
+        color = _color_de(det["clase"])
+        contorno = det.get("contorno_global_px")
+        if contorno and len(contorno) >= 3:
+            vertices = [(x * escala_x, y * escala_y) for x, y in contorno]
+            dibujo.polygon(vertices, fill=(*color, 70), outline=(*color, 255), width=2)
+            continue
         x1, y1, x2, y2 = det["box_global_px"][:4]
         cx = (x1 + x2) / 2 * escala_x
         cy = (y1 + y2) / 2 * escala_y
         r = 5
-        dibujo.ellipse([cx - r, cy - r, cx + r, cy + r], fill=_color_de(det["clase"]), outline=(255, 255, 255), width=1)
+        dibujo.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(*color, 255), outline=(255, 255, 255, 255), width=1)
 
-    return img
+    return Image.alpha_composite(img.convert("RGBA"), capa).convert("RGB")
 
 
 def generar_pdf(ortomosaico: Dict, analisis: Dict, detecciones: List[Dict], usuario_nombre: str) -> bytes:
@@ -79,6 +102,10 @@ def generar_pdf(ortomosaico: Dict, analisis: Dict, detecciones: List[Dict], usua
         ["Celdas inspeccionadas", f"{analisis.get('celdas_activas') or 0} / {analisis.get('total_celdas') or 0}"],
         ["Detecciones totales", str(len(detecciones))],
     ]
+
+    area_total = sum(d.get("area_m2") or 0.0 for d in detecciones)
+    if area_total > 0:
+        filas_meta.append(["Superficie afectada", _superficie(area_total)])
     tabla_meta = Table(filas_meta, colWidths=[55 * mm, 110 * mm])
     tabla_meta.setStyle(TableStyle([
         ("FONTSIZE", (0, 0), (-1, -1), 9),
@@ -102,15 +129,28 @@ def generar_pdf(ortomosaico: Dict, analisis: Dict, detecciones: List[Dict], usua
 
         conteo: Dict[str, Dict] = {}
         for d in detecciones:
-            c = conteo.setdefault(d["clase"], {"cantidad": 0, "suma_confianza": 0.0})
+            c = conteo.setdefault(d["clase"], {"cantidad": 0, "suma_confianza": 0.0, "area_m2": 0.0})
             c["cantidad"] += 1
             c["suma_confianza"] += d["confianza"]
+            c["area_m2"] += d.get("area_m2") or 0.0
 
-        filas_clase = [["", "Clase", "Cantidad", "Confianza prom."]]
+        # La superficie afectada solo se puede informar si el análisis corrió con
+        # un modelo de segmentación: de un punto no sale ningún área
+        hay_areas = any(c["area_m2"] > 0 for c in conteo.values())
+        encabezados = ["", "Clase", "Cantidad", "Confianza prom."]
+        anchos = [6 * mm, 60 * mm, 30 * mm, 35 * mm]
+        if hay_areas:
+            encabezados.append("Superficie")
+            anchos = [6 * mm, 45 * mm, 25 * mm, 32 * mm, 33 * mm]
+
+        filas_clase = [encabezados]
         for clase, c in sorted(conteo.items(), key=lambda kv: -kv[1]["cantidad"]):
-            filas_clase.append(["", clase, str(c["cantidad"]), f"{round(100 * c['suma_confianza'] / c['cantidad'])}%"])
+            fila = ["", clase, str(c["cantidad"]), f"{round(100 * c['suma_confianza'] / c['cantidad'])}%"]
+            if hay_areas:
+                fila.append(_superficie(c["area_m2"]))
+            filas_clase.append(fila)
 
-        tabla_clases = Table(filas_clase, colWidths=[6 * mm, 60 * mm, 30 * mm, 35 * mm])
+        tabla_clases = Table(filas_clase, colWidths=anchos)
         estilo_clases = [
             ("FONTSIZE", (0, 0), (-1, -1), 9),
             ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),

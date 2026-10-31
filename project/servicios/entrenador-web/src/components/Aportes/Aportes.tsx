@@ -35,9 +35,28 @@ type Fase = "elegir" | "subiendo" | "procesando";
 /** Avisos de un aporte aceptado: cosas que se ignoraron y conviene revisar. */
 function avisosDe(d: Dataset): string[] {
   const avisos = [];
-  if (d.imagenes_sin_anotar) avisos.push(`${plural(d.imagenes_sin_anotar, "imagen")} sin .json se ignoraron`);
+  // Una imagen ignorada no le enseña nada al modelo; declarada como fondo, le
+  // enseña que ahí no hay maleza. Por eso el aviso dice qué hacer.
+  if (d.imagenes_sin_anotar) {
+    avisos.push(
+      `${plural(d.imagenes_sin_anotar, "imagen")} sin .json se ignoraron: si no tienen maleza, ` +
+        "conviene declararlas como fondo con marcar_fondos.py y volver a subir el aporte"
+    );
+  }
   if (d.formas_ignoradas) avisos.push(`${plural(d.formas_ignoradas, "forma")} sin área (puntos o líneas) se ignoraron`);
   if (d.cajas_descartadas) avisos.push(`${plural(d.cajas_descartadas, "caja")} demasiado chicas se descartaron`);
+  // Sin contornos el aporte solo sirve para entrenar cajas
+  if (d.tiene_segmentacion === false) {
+    avisos.push("no tiene contornos: solo sirve para entrenar cajas, no segmentación");
+  } else if (d.contornos_de_caja) {
+    avisos.push(
+      `${plural(d.contornos_de_caja, "contorno")} son solo el rectángulo de la etiqueta: ` +
+        "entrenar segmentación con eso le enseña rectángulos al modelo"
+    );
+  }
+  if (d.contornos_descartados) {
+    avisos.push(`${plural(d.contornos_descartados, "forma")} quedaron sin contorno usable (se guardó solo su caja)`);
+  }
   return avisos;
 }
 

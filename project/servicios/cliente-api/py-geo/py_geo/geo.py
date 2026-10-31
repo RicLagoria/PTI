@@ -77,6 +77,24 @@ class GeoHandler:
             return lats[0], lons[0]
         return lat, lon
 
+    def pixeles_globales_a_latlon(
+        self, puntos: List[Tuple[float, float]]
+    ) -> List[Tuple[float, float]]:
+        """
+        Igual que pixel_global_a_latlon pero para varios puntos de una vez, con
+        una sola reproyección para todos. Es lo que hace falta al convertir el
+        contorno de una detección: son decenas de vértices por detección y
+        reproyectar de a uno multiplica por esa cantidad el costo de un análisis.
+        """
+        if not puntos:
+            return []
+        filas = [y for _, y in puntos]
+        columnas = [x for x, _ in puntos]
+        lons, lats = rasterio.transform.xy(self.transform, filas, columnas)
+        if self.src.crs != CRS_WGS84:
+            lons, lats = transformar_coordenadas(self.src.crs, CRS_WGS84, list(lons), list(lats))
+        return list(zip(lats, lons))
+
     def leer_tile_filtrado(
         self,
         x: int,

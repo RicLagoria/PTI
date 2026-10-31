@@ -8,7 +8,7 @@ Ojo al leer los resultados: son las mismas imágenes con las que se eligió la
 mejor época, así que la estimación es algo optimista.
 """
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import numpy as np
 from ultralytics import YOLO
@@ -36,13 +36,19 @@ def _muestrear(valores, cantidad: int) -> List[float]:
 def evaluar_modelo(
     pesos: str, ruta_yaml: Path, imgsz: int, carpeta: Path, clases: List[str],
     al_avanzar: Optional[Callable[[], None]] = None,
+    device: Any = "cpu", batch: int = 2,
 ) -> Dict:
     """
     Corre la validación de `pesos` y devuelve el contenido de evaluacion.json.
     `al_avanzar` se llama en cada lote: el worker lo usa para seguir dando latido.
+    `device` y `batch` son los mismos con los que se entrenó (ver dispositivos).
+
+    En un modelo de segmentación las métricas de caja siguen existiendo (son las
+    de la caja que encierra cada máscara) y son las que se informan como hasta
+    ahora; las de la máscara en sí van aparte, en "metricas_mascara".
     """
     comunes = dict(
-        data=str(ruta_yaml), imgsz=imgsz, batch=2, device="cpu", workers=2, split="val",
+        data=str(ruta_yaml), imgsz=imgsz, batch=batch, device=device, workers=2, split="val",
         plots=False, verbose=False, project=str(carpeta), name="evaluacion", exist_ok=True,
     )
     modelo = YOLO(pesos)
@@ -52,6 +58,8 @@ def evaluar_modelo(
     # 1ª pasada, sin umbral: el mAP se calcula sobre todas las predicciones
     metricas = modelo.val(**comunes)
     caja = metricas.box
+    # Solo en segmentación; en detección el atributo no existe o está vacío
+    mascara = getattr(metricas, "seg", None)
 
     # Umbral que maximiza el F1 promedio entre clases, con el mismo suavizado que usa
     # Ultralytics para reportar precisión y recall. Es el que conviene usar al analizar.
@@ -93,6 +101,15 @@ def evaluar_modelo(
     matriz = modelo.val(**{**comunes, "plots": True}, conf=umbral_matriz).confusion_matrix.matrix
     filas_reales = [[int(matriz[predicho][real]) for predicho in range(len(matriz))] for real in range(len(matriz))]
 
+    metricas_mascara = None
+    if mascara is not None and getattr(mascara, "map50", None) is not None:
+        metricas_mascara = {
+            "precision": _redondear(mascara.mp),
+            "recall": _redondear(mascara.mr),
+            "map50": _redondear(mascara.map50),
+            "map50_95": _redondear(mascara.map),
+        }
+
     return {
         "conjunto": "validacion",
         "metricas": {
@@ -101,6 +118,9 @@ def evaluar_modelo(
             "map50": _redondear(caja.map50),
             "map50_95": _redondear(caja.map),
         },
+        # Cuánto se parece el contorno predicho al dibujado, no solo su caja.
+        # None en los modelos de detección.
+        "metricas_mascara": metricas_mascara,
         "umbral_recomendado": umbral,
         "por_clase": por_clase,
         "matriz_confusion": {

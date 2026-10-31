@@ -17,7 +17,14 @@ import {
 import { Link } from "react-router-dom";
 import { BarChart3, CheckCircle2, Sprout, TrendingDown, TrendingUp } from "lucide-react";
 
-import { activarModelo, listarDatasets, listarModelos, type Dataset, type Modelo } from "../../services/EntrenamientoService";
+import {
+  activarModelo,
+  ETIQUETA_TAREA,
+  listarDatasets,
+  listarModelos,
+  type Dataset,
+  type Modelo,
+} from "../../services/EntrenamientoService";
 import { fecha, numero, plural, porcentaje } from "../../utils/formato";
 import Metrica from "../comunes/Metrica";
 import PanelError from "../comunes/PanelError";
@@ -129,6 +136,12 @@ export default function Modelos() {
                     </p>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
+                    {/* Activar una versión de cajas y una de contornos cambia lo
+                        que ve el cliente (puntos o manchas), así que la tarea va
+                        al lado del botón de activar y no escondida en el detalle */}
+                    <Chip size="sm" variant="flat" color={m.tarea === "segment" ? "secondary" : "default"}>
+                      {ETIQUETA_TAREA[m.tarea]}
+                    </Chip>
                     <Diferencia modelo={m} activo={activo} />
                     {m.activo ? (
                       <Chip color="success" variant="flat" startContent={<CheckCircle2 className="h-3.5 w-3.5" />}>

@@ -10,8 +10,8 @@ Archivos previstos:
   que va en las etiquetas YOLO**, así que solo se puede cambiar por el final:
   - las clases nuevas se agregan al final;
   - una clase se puede retirar solo si está al final. Los aportes ya subidos
-    siguen sirviendo: al armar cada entrenamiento se descartan sus cajas de las
-    clases retiradas. Así se retiraron `camino` y `lodazal` (octubre de 2026).
+    siguen sirviendo: al armar cada entrenamiento se descartan sus etiquetas de
+    las clases retiradas. Así se retiraron `camino` y `lodazal` (octubre de 2026).
   - Reordenar o borrar una clase del medio cambia lo que significa cada índice
     e invalida los aportes ya subidos.
 - `ia-inferencia.openapi.yaml`

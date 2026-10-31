@@ -17,6 +17,31 @@ export interface Dataset {
   imagenes_sin_anotar: number;
   formas_ignoradas: number;
   cajas_descartadas: number;
+  /** Contornos (polígonos) del aporte: con ellos se entrena segmentación. */
+  total_contornos?: number;
+  contornos_por_clase?: Record<string, number>;
+  /** Contornos que son solo las 4 esquinas de un rectángulo: no aportan forma. */
+  contornos_de_caja?: number;
+  contornos_descartados?: number;
+  /** Falta en los aportes subidos antes de que se guardaran los contornos. */
+  tiene_segmentacion?: boolean;
+}
+
+/** Qué entrena un modelo: cajas (detect) o contornos (segment). */
+export type Tarea = "detect" | "segment";
+
+export type Dispositivo = "cpu" | "gpu";
+
+/** Respuesta de GET /dispositivos: si se puede entrenar en GPU, y si no, por qué. */
+export interface Dispositivos {
+  gpu_disponible: boolean;
+  /** Qué falta para poder usar la GPU; null cuando está disponible. */
+  motivo: string | null;
+  torch_con_cuda: boolean;
+  cuda?: string | null;
+  gpus: { indice: number; nombre: string; memoria_gb: number }[];
+  lote_cpu: number;
+  lote_gpu: number;
 }
 
 export type EstadoTrabajo = "pendiente" | "ejecutando" | "completado" | "fallido" | "cancelado";
@@ -35,6 +60,12 @@ export interface Metricas {
   recall?: number;
   map50?: number;
   map50_95?: number;
+  // Solo en segmentación: lo mismo medido sobre la máscara y no sobre la caja
+  // que la encierra. Es la métrica que dice si el contorno sigue a la mancha.
+  precision_mascara?: number;
+  recall_mascara?: number;
+  map50_mascara?: number;
+  map50_95_mascara?: number;
 }
 
 /** Avance que publica el worker mientras el trabajo está en ejecución. */
@@ -58,6 +89,10 @@ export interface Trabajo {
   imgsz: number;
   pesos_base: string;
   fraccion_validacion?: number;
+  /** Sale de los pesos de partida. Falta en los trabajos de antes de segmentación. */
+  tarea?: Tarea;
+  /** Dónde entrena. Falta en los trabajos encolados antes de que se pudiera elegir. */
+  dispositivo?: Dispositivo;
   progreso_epocas: number;
   metricas: Metricas;
   version_generada: string | null;
@@ -75,6 +110,8 @@ export interface Trabajo {
 export interface Modelo {
   version: string;
   activo: boolean;
+  /** Lo que sabe hacer: con "segment" el análisis devuelve contornos. */
+  tarea: Tarea;
   tamano_mb: number;
   meta: {
     version?: string;
@@ -85,6 +122,11 @@ export interface Modelo {
     epocas?: number;
     imgsz?: number;
     pesos_base?: string;
+    tarea?: Tarea;
+    dispositivo?: Dispositivo;
+    /** Nombre de la placa, si se entrenó en GPU. */
+    placa?: string | null;
+    lote?: number;
     clases?: string[];
     imagenes_train?: number;
     imagenes_val?: number;
@@ -107,6 +149,12 @@ export interface MetricasPorClase {
 export interface Evaluacion {
   conjunto: string;
   metricas: { precision: number; recall: number; map50: number; map50_95: number };
+  /**
+   * Lo mismo medido sobre el contorno y no sobre su caja. null en los modelos de
+   * detección. Un mAP de caja alto con uno de máscara bajo significa que el
+   * modelo encuentra la maleza pero dibuja mal su borde.
+   */
+  metricas_mascara: { precision: number; recall: number; map50: number; map50_95: number } | null;
   umbral_recomendado: number | null;
   por_clase: MetricasPorClase[];
   matriz_confusion: {
@@ -128,10 +176,14 @@ export interface EpocaHistorial {
   recall: number | null;
   map50: number | null;
   map50_95: number | null;
+  /** Solo en segmentación */
+  map50_mascara?: number | null;
+  map50_95_mascara?: number | null;
 }
 
 export interface DetalleModelo {
   version: string;
+  tarea: Tarea;
   /** null en las versiones entrenadas fuera del sistema (la semilla) */
   evaluacion: Evaluacion | null;
   historial: EpocaHistorial[];
@@ -145,10 +197,27 @@ export interface SolicitudEntrenamiento {
   imgsz: number;
   pesos_base: string;
   fraccion_validacion: number;
+  dispositivo: Dispositivo;
 }
 
-/** Pesos oficiales que acepta la API además de las versiones del registro. */
-export const PESOS_BASE_OFICIALES = ["yolov8n.pt"];
+/**
+ * Pesos oficiales que acepta la API, con lo que entrena cada uno, además de las
+ * versiones del registro. La tarea no se elige aparte: viene con los pesos,
+ * porque el .pt trae la cabeza entrenada para cajas o para máscaras y no se
+ * puede seguir entrenando uno con las etiquetas del otro formato. Misma lista
+ * que registro.TAREA_DE_PESOS_OFICIALES del lado del servidor.
+ */
+export const TAREA_DE_PESOS_OFICIALES: Record<string, Tarea> = {
+  "yolov8n-seg.pt": "segment",
+  "yolov8n.pt": "detect",
+};
+
+export const PESOS_BASE_OFICIALES = Object.keys(TAREA_DE_PESOS_OFICIALES);
+
+export const ETIQUETA_TAREA: Record<Tarea, string> = {
+  segment: "Contornos",
+  detect: "Cajas",
+};
 
 /**
  * Error de la API con el detalle que manda cuando rechaza un aporte o un
@@ -209,6 +278,9 @@ async function pedir<T>(ruta: string, mensajeDefault: string, opciones?: Request
 }
 
 export const listarClases = () => pedir<string[]>("/clases", "No se pudo obtener la lista de clases.");
+
+export const listarDispositivos = () =>
+  pedir<Dispositivos>("/dispositivos", "No se pudo saber si hay GPU disponible.");
 
 export const listarDatasets = () => pedir<Dataset[]>("/datasets", "No se pudo obtener la lista de aportes.");
 

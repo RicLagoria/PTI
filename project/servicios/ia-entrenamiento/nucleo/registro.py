@@ -9,11 +9,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
-# Pesos de partida oficiales de Ultralytics que se aceptan en un entrenamiento.
-# Cualquier otra cosa tiene que ser una versión del registro: pesos_base llega
-# en el request y YOLO() abre los .pt con pickle (y descarga URLs), así que un
-# valor libre permitiría ejecutar código en el worker.
-PESOS_BASE_OFICIALES = ("yolov8n.pt",)
+# Pesos de partida oficiales de Ultralytics que se aceptan en un entrenamiento,
+# con la tarea de cada uno. Cualquier otra cosa tiene que ser una versión del
+# registro: pesos_base llega en el request y YOLO() abre los .pt con pickle (y
+# descarga URLs), así que un valor libre permitiría ejecutar código en el worker.
+#
+# La tarea no es un parámetro aparte sino una consecuencia de los pesos: el .pt
+# trae la cabeza entrenada para cajas o para máscaras, y no se puede seguir
+# entrenando uno con etiquetas del otro formato. Las versiones del registro
+# heredan la tarea de los pesos con los que se entrenaron (meta.json).
+TAREA_DE_PESOS_OFICIALES = {
+    "yolov8n.pt": "detect",
+    "yolov8n-seg.pt": "segment",
+}
+PESOS_BASE_OFICIALES = tuple(TAREA_DE_PESOS_OFICIALES)
+
+# La semilla train-3 y todo lo entrenado antes de que existiera segmentación
+TAREA_POR_DEFECTO = "detect"
 
 # Las versiones se usan como nombre de carpeta y llegan en las URLs
 NOMBRE_VERSION = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
@@ -21,6 +33,7 @@ CARPETA_ACTIVO = "activo"
 
 # Gráficos que genera Ultralytics y que la API puede servir tal cual. Para las
 # versiones sin evaluacion.json (la semilla) son lo único que hay de su validación.
+# Las curvas Mask* solo existen en las corridas de segmentación.
 IMAGENES_DE_CORRIDA = (
     "confusion_matrix.png",
     "confusion_matrix_normalized.png",
@@ -29,6 +42,10 @@ IMAGENES_DE_CORRIDA = (
     "BoxF1_curve.png",
     "BoxP_curve.png",
     "BoxR_curve.png",
+    "MaskPR_curve.png",
+    "MaskF1_curve.png",
+    "MaskP_curve.png",
+    "MaskR_curve.png",
 )
 
 # Archivos de una corrida de Ultralytics que se guardan con cada versión
@@ -106,6 +123,9 @@ def listar_modelos() -> List[Dict]:
                 modelos.append({
                     "version": d.name,
                     "activo": d.name == activa,
+                    # Afuera del meta porque decide con qué se puede seguir
+                    # entrenando: las versiones viejas no lo anotan y son detect
+                    "tarea": meta.get("tarea", TAREA_POR_DEFECTO),
                     "tamano_mb": round(best_pt.stat().st_size / (1024 * 1024), 2),
                     "meta": meta
                 })
@@ -126,6 +146,31 @@ def resolver_pesos_base(nombre: str) -> Optional[str]:
         return nombre
     carpeta = carpeta_version(nombre)
     return str(carpeta / "best.pt") if carpeta else None
+
+
+def leer_meta_version(version: str) -> Dict:
+    """meta.json de una versión publicada, o {} si no existe o no se puede leer."""
+    carpeta = carpeta_version(version)
+    if carpeta is None or not (carpeta / "meta.json").is_file():
+        return {}
+    try:
+        with open(carpeta / "meta.json", "r", encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def tarea_de_pesos(nombre: str) -> Optional[str]:
+    """
+    Qué entrena un .pt: "detect" (cajas) o "segment" (contornos). None si los
+    pesos no están permitidos. Las versiones publicadas antes de que existiera
+    segmentación no lo anotan en su meta.json: son de detección.
+    """
+    if nombre in TAREA_DE_PESOS_OFICIALES:
+        return TAREA_DE_PESOS_OFICIALES[nombre]
+    if carpeta_version(nombre) is None:
+        return None
+    return leer_meta_version(nombre).get("tarea", TAREA_POR_DEFECTO)
 
 
 def activar_modelo(version: str) -> bool:
@@ -156,6 +201,11 @@ def leer_metricas(results_csv: Path) -> Dict:
     """
     Métricas de la época que Ultralytics guardó como best.pt: la de mayor
     fitness, que para detección es 0.1 * mAP50 + 0.9 * mAP50-95.
+
+    En una corrida de segmentación el CSV trae dos juegos de columnas: (B) son
+    las cajas que el modelo deduce de cada máscara y (M) las máscaras en sí. El
+    fitness promedia los dos, igual que Ultralytics, y las métricas de máscara
+    se agregan con el sufijo _mascara (ausentes en una corrida de detección).
     """
     try:
         with open(results_csv, "r", encoding="utf-8") as f:
@@ -167,8 +217,12 @@ def leer_metricas(results_csv: Path) -> Dict:
         def valor(fila: Dict, columna: str) -> float:
             return float(fila.get(columna) or 0)
 
-        mejor = max(filas, key=lambda f: 0.1 * valor(f, "metrics/mAP50(B)") + 0.9 * valor(f, "metrics/mAP50-95(B)"))
-        return {
+        def fitness(fila: Dict, sufijo: str) -> float:
+            return 0.1 * valor(fila, f"metrics/mAP50({sufijo})") + 0.9 * valor(fila, f"metrics/mAP50-95({sufijo})")
+
+        hay_mascara = any(c.endswith("(M)") for c in filas[0])
+        mejor = max(filas, key=lambda f: (fitness(f, "B") + fitness(f, "M")) / 2 if hay_mascara else fitness(f, "B"))
+        metricas = {
             "epoca_mejor": int(valor(mejor, "epoch")),
             "epocas_entrenadas": len(filas),
             "precision": round(valor(mejor, "metrics/precision(B)"), 4),
@@ -176,6 +230,14 @@ def leer_metricas(results_csv: Path) -> Dict:
             "map50": round(valor(mejor, "metrics/mAP50(B)"), 4),
             "map50_95": round(valor(mejor, "metrics/mAP50-95(B)"), 4),
         }
+        if hay_mascara:
+            metricas.update({
+                "precision_mascara": round(valor(mejor, "metrics/precision(M)"), 4),
+                "recall_mascara": round(valor(mejor, "metrics/recall(M)"), 4),
+                "map50_mascara": round(valor(mejor, "metrics/mAP50(M)"), 4),
+                "map50_95_mascara": round(valor(mejor, "metrics/mAP50-95(M)"), 4),
+            })
+        return metricas
     except (OSError, ValueError, KeyError):
         return {}
 
@@ -196,17 +258,24 @@ def leer_historial(results_csv: Path) -> List[Dict]:
 
     def suma(fila: Dict, prefijo: str) -> Optional[float]:
         partes = [valor(fila, f"{prefijo}/{c}_loss") for c in ("box", "cls", "dfl")]
-        return None if None in partes else round(sum(partes), 4)
+        if None in partes:
+            return None
+        # Las corridas de segmentación suman una cuarta pérdida, la de las máscaras
+        seg = valor(fila, f"{prefijo}/seg_loss")
+        return round(sum(partes) + (seg or 0), 4)
 
     return [{
         "epoca": int(valor(fila, "epoch") or 0),
-        # Suma de las tres pérdidas de YOLO (cajas, clases y distribución de bordes)
+        # Suma de las pérdidas de YOLO (cajas, clases, distribución de bordes y,
+        # en segmentación, máscaras)
         "perdida_train": suma(fila, "train"),
         "perdida_val": suma(fila, "val"),
         "precision": valor(fila, "metrics/precision(B)"),
         "recall": valor(fila, "metrics/recall(B)"),
         "map50": valor(fila, "metrics/mAP50(B)"),
         "map50_95": valor(fila, "metrics/mAP50-95(B)"),
+        "map50_mascara": valor(fila, "metrics/mAP50(M)"),
+        "map50_95_mascara": valor(fila, "metrics/mAP50-95(M)"),
     } for fila in filas]
 
 
@@ -221,6 +290,7 @@ def leer_detalle(version: str) -> Optional[Dict]:
             evaluacion = json.load(f)
     return {
         "version": version,
+        "tarea": leer_meta_version(version).get("tarea", TAREA_POR_DEFECTO),
         "evaluacion": evaluacion,
         "historial": leer_historial(carpeta / "results.csv"),
         "imagenes": [n for n in IMAGENES_DE_CORRIDA if (carpeta / n).is_file()],
@@ -297,7 +367,10 @@ def sembrar_si_vacio(carpeta_semilla: Path, clases_canonicas: List[str]) -> Opti
         return None
 
     version = carpeta_semilla.name
-    publicar_version(version, carpeta_semilla, {"origen": "semilla", "clases": clases})
+    # train-3 es de detección: marca puntos, no contornos. Se siembra para que
+    # una instalación nueva tenga algo con qué analizar hasta que se entrene un
+    # modelo segment con los contornos de los aportes.
+    publicar_version(version, carpeta_semilla, {"origen": "semilla", "tarea": "detect", "clases": clases})
     if version_activa() is None:
         activar_modelo(version)
     return version

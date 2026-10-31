@@ -8,6 +8,7 @@ import { Card, CardBody, Chip, Spinner } from "@heroui/react";
 import { AlertTriangle, ArrowLeft, CheckCircle2, Crosshair, Info, Sprout } from "lucide-react";
 
 import {
+  ETIQUETA_TAREA,
   listarModelos,
   obtenerDetalleModelo,
   urlImagenModelo,
@@ -115,6 +116,8 @@ export default function DetalleModelo() {
   const metricas = ev?.metricas ?? meta.metricas ?? {};
   const historial = detalle.historial;
   const epocaMejor = meta.metricas?.epoca_mejor;
+  // Las corridas de detección no tienen columnas de máscara en results.csv
+  const hayMascara = historial.some((h) => h.map50_95_mascara != null);
 
   return (
     <div className="space-y-6">
@@ -134,18 +137,36 @@ export default function DetalleModelo() {
                 {fecha(meta.fecha_creacion)}
                 {meta.imagenes_train !== undefined &&
                   ` · ${numero(meta.imagenes_train)} imágenes de entrenamiento y ${numero(meta.imagenes_val)} de validación (${numero((meta.fraccion_validacion ?? 0) * 100)} %)`}
+                {meta.dispositivo && ` · en ${meta.dispositivo.toUpperCase()}${meta.placa ? ` (${meta.placa})` : ""}`}
               </p>
             </div>
-            {modelo?.activo && (
-              <Chip color="success" variant="flat" startContent={<CheckCircle2 className="h-3.5 w-3.5" />}>
-                Activo
+            <div className="flex shrink-0 items-center gap-2">
+              {/* Lo primero que hay que saber de una versión: si marca contornos
+                  o solo puntos. Decide cómo se ve el análisis en cliente-web. */}
+              <Chip variant="flat" color={detalle.tarea === "segment" ? "secondary" : "default"}>
+                {ETIQUETA_TAREA[detalle.tarea]}
               </Chip>
-            )}
+              {modelo?.activo && (
+                <Chip color="success" variant="flat" startContent={<CheckCircle2 className="h-3.5 w-3.5" />}>
+                  Activo
+                </Chip>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
             <Metrica etiqueta="mAP50-95" valor={porcentaje(metricas.map50_95)} />
-            <Metrica etiqueta="mAP50" valor={porcentaje(metricas.map50)} />
+            {/* El mAP de máscara es el que dice si el contorno sigue a la mancha;
+                el de caja, solo si la encontró. En detección no existe. */}
+            {ev?.metricas_mascara ? (
+              <Metrica
+                etiqueta="mAP50-95 máscara"
+                valor={porcentaje(ev.metricas_mascara.map50_95)}
+                detalle="sobre el contorno"
+              />
+            ) : (
+              <Metrica etiqueta="mAP50" valor={porcentaje(metricas.map50)} />
+            )}
             <Metrica etiqueta="Precisión" valor={porcentaje(metricas.precision)} />
             <Metrica etiqueta="Recall" valor={porcentaje(metricas.recall)} />
             <div className="col-span-2 rounded-2xl border border-blue-200 bg-blue-50 p-4 md:col-span-1 dark:border-blue-900 dark:bg-blue-950/40">
@@ -253,7 +274,25 @@ export default function DetalleModelo() {
               <GraficoLineas
                 titulo="mAP50-95 de validación por época"
                 x={historial.map((h) => h.epoca)}
-                series={[{ clave: "map", nombre: "mAP50-95", color: "var(--serie-1)", valores: historial.map((h) => h.map50_95) }]}
+                series={[
+                  {
+                    clave: "map",
+                    nombre: hayMascara ? "mAP50-95 caja" : "mAP50-95",
+                    color: "var(--serie-1)",
+                    valores: historial.map((h) => h.map50_95),
+                  },
+                  // Las dos curvas juntas muestran el desfasaje típico de
+                  // segmentación: encontrar la mancha se aprende antes que
+                  // dibujarle bien el borde
+                  ...(hayMascara
+                    ? [{
+                        clave: "map_mascara",
+                        nombre: "mAP50-95 máscara",
+                        color: "var(--serie-2)",
+                        valores: historial.map((h) => h.map50_95_mascara ?? null),
+                      }]
+                    : []),
+                ]}
                 etiquetaX="Época"
                 formatoX={(v) => numero(v)}
                 formatoY={(v) => porcentaje(v)}

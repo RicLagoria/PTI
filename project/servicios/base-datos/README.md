@@ -9,9 +9,27 @@ de la tabla `usuarios`.
 ## Qué levanta
 
 La imagen oficial `postgis/postgis` (Postgres + la extensión PostGIS ya
-instalada, no hace falta Dockerfile propio). `init/01_esquema.sql` se corre
-automáticamente la primera vez que el contenedor arranca con el volumen de
-datos vacío — crea la extensión PostGIS y la tabla `usuarios`.
+instalada, no hace falta Dockerfile propio). Los archivos de `init/` se corren
+en orden, automáticamente, la primera vez que el contenedor arranca con el
+volumen de datos vacío:
+
+- `01_esquema.sql` — la extensión PostGIS y la tabla `usuarios`.
+- `02_analisis.sql` — `ortomosaicos`, `analisis` y `detecciones`.
+- `03_segmentacion.sql` — el contorno de cada detección: lo que aporta un modelo
+  de segmentación por encima de uno de detección.
+
+## Aplicar una migración a una base que ya existe
+
+Postgres corre `init/` **una sola vez**, al crear el volumen: sobre una base que
+ya tiene datos hay que aplicar los archivos nuevos a mano. Están escritos para
+que repetirlo no haga nada (`IF NOT EXISTS` en todo):
+
+```bash
+docker compose -f despliegue/compose.dev.yml exec -T db psql -U agrovision -d agrovision < project/servicios/base-datos/init/03_segmentacion.sql
+```
+
+Sin eso, `cliente-api` falla al guardar las detecciones de un análisis, porque
+inserta en columnas que todavía no existen.
 
 Ya está sumada a `despliegue/compose.dev.yml` y `despliegue/compose.cliente.yml`
 como servicio `db`. No hace falta nada manual para levantarla, sale con el

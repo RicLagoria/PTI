@@ -1,0 +1,50 @@
+# Entrenar en GPU. Es un override de compose.ia.yml, no un despliegue aparte:
+#
+#   docker compose -f compose.ia.yml -f compose.ia.gpu.yml up --build
+#
+# Sin esto, la opción "GPU" de entrenador-web aparece deshabilitada y el worker
+# rechaza un trabajo que la pida (ver nucleo/dispositivos.py): la imagen por
+# defecto trae las ruedas de torch para CPU, que no saben hablar con una placa.
+#
+# En el host hace falta el nvidia-container-toolkit, que es lo que le da al
+# contenedor acceso al dispositivo (desde la versión 1.20 el paquete ya deja los
+# specs CDI y registra el runtime "nvidia" solo). Para comprobarlo:
+#
+#   docker run --rm --gpus all nvidia/cuda:12.8.0-base-ubuntu24.04 nvidia-smi
+#
+# Si eso no lista la placa, el problema es del host y no de estos archivos; ver
+# el README de ia-entrenamiento.
+#
+# La API también se construye con CUDA y recibe la GPU, aunque no entrene: es la
+# que responde GET /dispositivos, y si no la viera le diría a entrenador-web que
+# no hay GPU mientras el worker sí la tiene.
+services:
+  ia-entrenamiento-api:
+    build:
+      context: ../project/servicios/ia-entrenamiento
+      args:
+        VARIANTE_TORCH: cu128
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  ia-entrenamiento-worker:
+    build:
+      context: ../project/servicios/ia-entrenamiento
+      args:
+        VARIANTE_TORCH: cu128
+    environment:
+      # Imágenes por lote en GPU. 16 a 640 px entra con holgura en 8 GB de VRAM;
+      # bajarlo si el entrenamiento se cae con "CUDA out of memory".
+      LOTE_GPU: 16
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
