@@ -17,6 +17,9 @@ volumen de datos vacío:
 - `02_analisis.sql` — `ortomosaicos`, `analisis` y `detecciones`.
 - `03_segmentacion.sql` — el contorno de cada detección: lo que aporta un modelo
   de segmentación por encima de uno de detección.
+- `04_escala.sql` — a qué escala corrió cada análisis. Dos corridas del mismo
+  ortomosaico con el mismo modelo pueden dar resultados muy distintos solo por
+  esto, así que sin la columna no se sabría cuál fue cuál.
 
 ## Aplicar una migración a una base que ya existe
 
@@ -26,6 +29,7 @@ que repetirlo no haga nada (`IF NOT EXISTS` en todo):
 
 ```bash
 docker compose -f despliegue/compose.dev.yml exec -T db psql -U agrovision -d agrovision < project/servicios/base-datos/init/03_segmentacion.sql
+docker compose -f despliegue/compose.dev.yml exec -T db psql -U agrovision -d agrovision < project/servicios/base-datos/init/04_escala.sql
 ```
 
 Sin eso, `cliente-api` falla al guardar las detecciones de un análisis, porque

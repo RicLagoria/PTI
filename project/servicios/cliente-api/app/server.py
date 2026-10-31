@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -159,6 +159,10 @@ def analizar_campo_stream(
     imagen_id: str,
     cuadrante: Optional[int] = None,
     conf: float = 0.10,
+    # Cuánto se aleja la cámara: 1 lee celdas de imgsz px del raster y 4 lee
+    # celdas de 4*imgsz reducidas a imgsz, o sea 16 veces más campo por celda.
+    # Una mancha más grande que la celda no entra entera y el modelo la corta.
+    escala: int = Query(1, ge=1, le=8),
     carpeta=Depends(carpeta_imagen),
     usuario=Depends(auth.usuario_actual),
 ):
@@ -173,7 +177,8 @@ def analizar_campo_stream(
                 ortomosaico_id=imagen_id,
                 usuario_id=usuario["id"],
                 cuadrante=cuadrante,
-                conf=conf
+                conf=conf,
+                escala=escala
             ):
                 yield f"data: {json.dumps(chunk)}\n\n"
         except Exception as e:
@@ -195,6 +200,10 @@ def analizar_campo_completo(
     imagen_id: str,
     cuadrante: Optional[int] = None,
     conf: float = 0.10,
+    # Cuánto se aleja la cámara: 1 lee celdas de imgsz px del raster y 4 lee
+    # celdas de 4*imgsz reducidas a imgsz, o sea 16 veces más campo por celda.
+    # Una mancha más grande que la celda no entra entera y el modelo la corta.
+    escala: int = Query(1, ge=1, le=8),
     carpeta=Depends(carpeta_imagen),
     usuario=Depends(auth.usuario_actual),
 ):
@@ -205,7 +214,8 @@ def analizar_campo_completo(
         ortomosaico_id=imagen_id,
         usuario_id=usuario["id"],
         cuadrante=cuadrante,
-        conf=conf
+        conf=conf,
+        escala=escala
     ):
         resultado_final = chunk
 

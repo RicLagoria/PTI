@@ -81,17 +81,20 @@ def obtener_ruta_archivo(id_: str) -> Optional[str]:
 # ==========================================================
 def crear_analisis(
     ortomosaico_id: str, usuario_id: int, version_modelo: str,
-    conf_umbral: float, cuadrante: Optional[int], total_celdas: int
+    conf_umbral: float, cuadrante: Optional[int], total_celdas: int,
+    escala: int = 1
 ) -> int:
     with conexion() as con:
         fila = con.execute(
             """
             INSERT INTO analisis
-                (ortomosaico_id, usuario_id, version_modelo, conf_umbral, cuadrante, total_celdas, estado)
-            VALUES (%s, %s, %s, %s, %s, %s, 'en_progreso')
+                (ortomosaico_id, usuario_id, version_modelo, conf_umbral, cuadrante,
+                 total_celdas, escala, estado)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, 'en_progreso')
             RETURNING id
             """,
-            (ortomosaico_id, usuario_id, version_modelo, conf_umbral, cuadrante, total_celdas),
+            (ortomosaico_id, usuario_id, version_modelo, conf_umbral, cuadrante,
+             total_celdas, escala),
         ).fetchone()
         con.commit()
         return fila["id"]
@@ -111,8 +114,8 @@ def obtener_analisis(analisis_id: int) -> Optional[Dict]:
         fila = con.execute(
             """
             SELECT a.id, a.ortomosaico_id, a.version_modelo, a.conf_umbral, a.cuadrante,
-                   a.fecha_inicio, a.fecha_fin, a.total_celdas, a.celdas_activas, a.estado,
-                   u.nombre_completo AS usuario_nombre
+                   a.escala, a.fecha_inicio, a.fecha_fin, a.total_celdas, a.celdas_activas,
+                   a.estado, u.nombre_completo AS usuario_nombre
             FROM analisis a
             LEFT JOIN usuarios u ON u.id = a.usuario_id
             WHERE a.id = %s
@@ -128,8 +131,8 @@ def listar_analisis(ortomosaico_id: str) -> List[Dict]:
         filas = con.execute(
             """
             SELECT a.id, a.version_modelo, a.conf_umbral, a.cuadrante,
-                   a.fecha_inicio, a.fecha_fin, a.total_celdas, a.celdas_activas, a.estado,
-                   u.nombre_completo AS usuario_nombre,
+                   a.escala, a.fecha_inicio, a.fecha_fin, a.total_celdas, a.celdas_activas,
+                   a.estado, u.nombre_completo AS usuario_nombre,
                    COUNT(d.id) AS total_detecciones
             FROM analisis a
             LEFT JOIN usuarios u ON u.id = a.usuario_id
@@ -146,6 +149,7 @@ def listar_analisis(ortomosaico_id: str) -> List[Dict]:
                 "version_modelo": f["version_modelo"],
                 "conf_umbral": f["conf_umbral"],
                 "cuadrante": f["cuadrante"],
+                "escala": f["escala"],
                 "fecha_inicio": f["fecha_inicio"].isoformat(),
                 "fecha_fin": f["fecha_fin"].isoformat() if f["fecha_fin"] else None,
                 "total_celdas": f["total_celdas"],

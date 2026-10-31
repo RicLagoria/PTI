@@ -25,7 +25,8 @@ def ejecutar_inspeccion_segmentada(
     ortomosaico_id: str,
     usuario_id: int,
     cuadrante: Optional[int] = None,
-    conf: float = 0.10
+    conf: float = 0.10,
+    escala: int = 1
 ) -> Generator[dict, None, None]:
     """
     Generador que procesa el ortomosaico en bloques de a lo sumo TAMANO_LOTE_MAX celdas.
@@ -34,13 +35,20 @@ def ejecutar_inspeccion_segmentada(
     y las persiste en la tabla detecciones a medida que llegan (no se acumulan
     en memoria ni se pisan corridas anteriores: cada llamada crea su propia
     fila en "analisis").
+
+    `escala` es cuánto se aleja la cámara: con 1 cada celda son `imgsz` píxeles
+    del raster leídos tal cual, y con 4 son `imgsz * 4` reducidos a `imgsz`, o
+    sea el mismo encuadre con cuatro veces más campo. Hace falta porque una
+    mancha más grande que la celda nunca entra entera en la imagen y el modelo
+    la corta; ver GeoHandler. Una pasada gruesa recorre 16 veces menos celdas,
+    así que es más barata que una fina, no más cara.
     """
     cliente_ia = ClienteIA()
     info_modelo = cliente_ia.obtener_modelo()
     tamano_tile = info_modelo.get("imgsz", 640)
     version_modelo = info_modelo.get("version", "v1")
 
-    geo = GeoHandler(ruta_tif, tamano_tile=tamano_tile)
+    geo = GeoHandler(ruta_tif, tamano_tile=tamano_tile, escala=escala)
     celdas = geo.obtener_lista_cuadrantes(cuadrante=cuadrante)
     total_celdas = len(celdas)
 
@@ -51,6 +59,7 @@ def ejecutar_inspeccion_segmentada(
         conf_umbral=conf,
         cuadrante=cuadrante,
         total_celdas=total_celdas,
+        escala=geo.escala,
     )
 
     tamano_segmento = min(TAMANO_LOTE_MAX, max(1, math.ceil(total_celdas / 10)))
@@ -60,7 +69,7 @@ def ejecutar_inspeccion_segmentada(
     total_activas = 0
     estado_final = "completo"
 
-    print(f"[INICIO] analisis={analisis_id} {total_celdas} celdas en {len(segmentos)} bloques (max {tamano_segmento} celdas c/u). imgsz={tamano_tile}")
+    print(f"[INICIO] analisis={analisis_id} {total_celdas} celdas en {len(segmentos)} bloques (max {tamano_segmento} celdas c/u). imgsz={tamano_tile} escala={geo.escala} celda={geo.tamano_celda}px")
 
     try:
         for seg_idx, segmento in enumerate(segmentos):
@@ -98,6 +107,7 @@ def ejecutar_inspeccion_segmentada(
 
             chunk = {
                 "analisis_id": analisis_id,
+                "escala": geo.escala,
                 "bloque": seg_idx + 1,
                 "total_bloques": len(segmentos),
                 "progreso_pct": progreso_pct,

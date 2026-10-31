@@ -66,12 +66,18 @@ def traducir_deteccion(
     """
     offset_x = celda_meta["x"]
     offset_y = celda_meta["y"]
+    # La celda pudo leerse reducida (análisis a escala gruesa, ver GeoHandler),
+    # y entonces el modelo trabajó sobre una imagen más chica que el pedazo de
+    # raster que representa: hay que deshacer esa reducción antes de correr la
+    # detección a su lugar. A escala 1 los dos factores son 1.0.
+    factor_x = celda_meta.get("factor_x", 1.0)
+    factor_y = celda_meta.get("factor_y", 1.0)
 
     lx1, ly1, lx2, ly2 = det_local["box_local"]
-    gx1 = offset_x + lx1
-    gy1 = offset_y + ly1
-    gx2 = offset_x + lx2
-    gy2 = offset_y + ly2
+    gx1 = offset_x + lx1 * factor_x
+    gy1 = offset_y + ly1 * factor_y
+    gx2 = offset_x + lx2 * factor_x
+    gy2 = offset_y + ly2 * factor_y
 
     # Centro preciso de la caja detectada
     centro_x = (gx1 + gx2) / 2.0
@@ -94,7 +100,7 @@ def traducir_deteccion(
 
     contorno_local: List[List[float]] = det_local.get("contorno_local") or []
     if len(contorno_local) >= 3:
-        globales = [(offset_x + x, offset_y + y) for x, y in contorno_local]
+        globales = [(offset_x + x * factor_x, offset_y + y * factor_y) for x, y in contorno_local]
         # Una sola reproyección para todos los vértices, no una por vértice
         vertices = geo.pixeles_globales_a_latlon(globales)
         deteccion["contorno_global_px"] = [[round(x, 1), round(y, 1)] for x, y in globales]

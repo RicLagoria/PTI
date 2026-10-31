@@ -11,15 +11,48 @@ CRS_WGS84 = CRS.from_epsg(4326)
 
 
 class GeoHandler:
-    def __init__(self, ruta_tif: str, tamano_tile: int = 640):
+    """
+    Recorre un ortomosaico en celdas del tamaño que espera el modelo.
+
+    `escala` separa dos cosas que no son la misma: cuánto campo abarca una celda
+    y cuántos píxeles recibe el modelo. Con escala 1 la celda son 640 px del
+    raster leídos tal cual, que a 3,3 cm/px son unos 21 m: una mancha más grande
+    no entra entera en la imagen y el modelo aprende a cortarla. Con escala 4 la
+    celda son 2560 px del raster reducidos a los mismos 640, o sea el mismo
+    encuadre con cuatro veces más campo: la cámara se aleja.
+
+    Alejarse sale más barato, no más caro: un COG trae resúmenes a media, cuarta
+    y octava resolución, y `out_shape` hace que rasterio lea del resumen que
+    corresponde en vez del raster completo. A escala 4 hay 16 veces menos celdas
+    y cada una cuesta lo mismo que una de escala 1.
+    """
+
+    def __init__(self, ruta_tif: str, tamano_tile: int = 640, escala: int = 1):
         self.ruta_tif = ruta_tif
         self.tamano_tile = tamano_tile
+        self.escala = max(1, int(escala))
+        # Lo que mide la celda en píxeles del raster, antes de reducirla
+        self.tamano_celda = tamano_tile * self.escala
         self.src = rasterio.open(ruta_tif)
         self.ancho_total = self.src.width
         self.alto_total = self.src.height
         self.transform = self.src.transform
-        self.filas = math.ceil(self.alto_total / tamano_tile)
-        self.columnas = math.ceil(self.ancho_total / tamano_tile)
+        self.filas = math.ceil(self.alto_total / self.tamano_celda)
+        self.columnas = math.ceil(self.ancho_total / self.tamano_celda)
+
+    def tamano_leido(self, ancho: int, alto: int) -> Tuple[int, int]:
+        """
+        Cuánto mide la celda una vez reducida, que es lo que recibe el modelo.
+
+        Las celdas del borde del raster salen más chicas que las demás, así que
+        el factor de reducción real no es exactamente `escala` y hay que
+        calcularlo contra lo que efectivamente se leyó. Lo usan
+        `obtener_lista_cuadrantes`, para anotarlo en cada celda, y
+        `leer_tile_filtrado`, para pedirle ese tamaño a rasterio.
+        """
+        if self.escala == 1:
+            return ancho, alto
+        return max(1, ancho // self.escala), max(1, alto // self.escala)
 
     def obtener_lista_cuadrantes(self, cuadrante: Optional[int] = None) -> List[Dict]:
         mitad_filas = max(1, self.filas // 2)
@@ -38,19 +71,26 @@ class GeoHandler:
 
         lista_celdas = []
         for r_local, r in enumerate(r_rango):
-            y = r * self.tamano_tile
-            alto = min(self.tamano_tile, self.alto_total - y)
+            y = r * self.tamano_celda
+            alto = min(self.tamano_celda, self.alto_total - y)
             for c_local, c in enumerate(c_rango):
-                x = c * self.tamano_tile
-                ancho = min(self.tamano_tile, self.ancho_total - x)
+                x = c * self.tamano_celda
+                ancho = min(self.tamano_celda, self.ancho_total - x)
                 lon, lat = rasterio.transform.xy(self.transform, y + (alto // 2), x + (ancho // 2))
+                ancho_leido, alto_leido = self.tamano_leido(ancho, alto)
                 lista_celdas.append({
                     "fila": r_local,
                     "col": c_local,
                     "x": x,
                     "y": y,
+                    # En píxeles del raster: lo que abarca la celda
                     "ancho": ancho,
                     "alto": alto,
+                    # Por cuánto hay que multiplicar una coordenada que devuelve
+                    # el modelo para volver a píxeles del raster. Es 1.0 a escala
+                    # 1, y en una celda del borde no es exactamente la escala.
+                    "factor_x": ancho / ancho_leido,
+                    "factor_y": alto / alto_leido,
                     "lat": lat,
                     "lon": lon
                 })
@@ -105,12 +145,23 @@ class GeoHandler:
         umbral_desviacion: int = 8
     ) -> Optional[np.ndarray]:
         """
-        Lee el bloque del disco y descarta partes vacías/negras.
-        Retorna None si la celda es borde negro o plano, evitando llamar a YOLO.
+        Lee el bloque del disco, ya reducido al tamaño de entrada del modelo, y
+        descarta partes vacías/negras. Retorna None si la celda es borde negro o
+        plano, evitando llamar a YOLO.
+
+        `out_shape` es lo que hace barata la escala gruesa: rasterio resuelve la
+        reducción contra el resumen del COG que más se acerque, así que leer una
+        celda de 2560 px reducida a 640 cuesta lo mismo que leer una de 640, no
+        dieciséis veces más.
         """
         ventana = Window(x, y, ancho, alto)
         num_bandas = min(self.src.count, 3)
-        bandas = self.src.read(list(range(1, num_bandas + 1)), window=ventana)
+        ancho_leido, alto_leido = self.tamano_leido(ancho, alto)
+        bandas = self.src.read(
+            list(range(1, num_bandas + 1)),
+            window=ventana,
+            out_shape=(num_bandas, alto_leido, ancho_leido),
+        )
 
         # Descarte 1: Si el promedio de píxeles es casi negro
         if bandas.mean() < umbral_brillo:

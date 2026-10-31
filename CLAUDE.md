@@ -17,7 +17,7 @@ El sistema se está partiendo en tres planos desplegables por separado (IA, Clie
 - `cliente-api` — FastAPI con login real (JWT contra PostgreSQL). Dueño de los ortomosaicos y de todo lo geoespacial; para analizar manda lotes de teselas a `ia-inferencia` y georreferencia lo que vuelve, contornos incluidos (`georref.py`).
 - `cliente-web` — React + Leaflet: el front del MVP, con el login conectado a `cliente-api`. Dibuja un `Polygon` por detección con contorno y cae al marcador cuando no lo hay.
 - `entrenador-web` — React: subir aportes, entrenar (eligiendo contornos/cajas y CPU/GPU) y activar versiones. No tiene login ni backend propio; habla directo con la API de `ia-entrenamiento`.
-- `base-datos` — esquema de PostgreSQL + PostGIS en `init/`, que Postgres corre **una sola vez** al crear el volumen: `01_esquema.sql` (tabla `usuarios`), `02_analisis.sql` (`ortomosaicos`, `analisis`, `detecciones`) y `03_segmentacion.sql` (el contorno de cada detección). Sobre una base que ya existe hay que aplicar los archivos nuevos a mano, son idempotentes; ver su README. Las cuentas del equipo se cargan con `cliente-api/app/crear_usuarios.py`.
+- `base-datos` — esquema de PostgreSQL + PostGIS en `init/`, que Postgres corre **una sola vez** al crear el volumen: `01_esquema.sql` (tabla `usuarios`), `02_analisis.sql` (`ortomosaicos`, `analisis`, `detecciones`), `03_segmentacion.sql` (el contorno de cada detección) y `04_escala.sql` (a qué escala corrió cada análisis). Sobre una base que ya existe hay que aplicar los archivos nuevos a mano, son idempotentes; ver su README. Las cuentas del equipo se cargan con `cliente-api/app/crear_usuarios.py`.
 
 Compartido y despliegue:
 
@@ -32,6 +32,15 @@ Compartido y despliegue:
 - **La columna `detecciones.contorno` es `MULTIPOLYGON`, no `POLYGON`.** El contorno de una máscara puede salir con el borde cruzado, y `ST_MakeValid` arregla ese anillo partiéndolo en varios. Al leer se devuelve la pieza de mayor área (las otras son esquirlas de unos píxeles), pero la superficie se mide sobre todas.
 - **La superficie se calcula en dos lugares a propósito.** Un análisis en vivo manda las detecciones al navegador antes de leerlas de vuelta, así que `georref.area_m2` la calcula ahí con un plano tangente al contorno (se aparta menos del 0,1 % a escala de una mancha); al leer un análisis guardado la calcula PostGIS con `ST_Area(contorno::geography)`.
 - **El contorno se simplifica en `ia-inferencia`, no en el cliente.** El borde crudo de una máscara tiene cientos de vértices casi colineales, y ese contorno viaja hasta el navegador y se guarda en la base.
+- **El tamaño de la celda ya no es el de entrada del modelo.** `escala` (1 por
+  defecto, hasta 8) los separa: una celda son `imgsz * escala` píxeles del
+  raster reducidos a `imgsz`, o sea el mismo encuadre con más campo. Es un
+  parámetro de los dos endpoints de análisis y queda guardado en
+  `analisis.escala`. Alejarse sale **más barato**: los overviews del COG hacen
+  la reducción (leer una celda de 2560 px cuesta 16 ms contra 11 ms una de 640)
+  y hay 16 veces menos celdas. Lo que sí hay que saber es que `georref` deshace
+  la reducción con el `factor_x`/`factor_y` de cada celda y no con la escala,
+  porque en una celda del borde del raster no son lo mismo.
 - **El dashboard sigue midiendo cobertura por celdas de 640 px,** no por superficie de los contornos (`datos.estadisticas_dashboard`): ahora que hay áreas reales, eso se puede mejorar.
 
 **`project/mvp/` es el monolito anterior** y queda como referencia: un backend FastAPI que hace todo (teselas, lectura del raster e inferencia) y el front en React. Gran parte de este archivo todavía describe el MVP; la sección 9 de `docs/arquitectura.md` dice a dónde fue cada archivo. `project/entrenamiento` es un archivo vacío que quedó de la re-estructuración.
@@ -83,6 +92,7 @@ docker compose -f despliegue/compose.dev.yml run --rm cliente-api python crear_u
 
 # Migración de una base que ya existe (init/ solo corre al crear el volumen). Idempotente.
 docker compose -f despliegue/compose.dev.yml exec -T db psql -U agrovision -d agrovision < project/servicios/base-datos/init/03_segmentacion.sql
+docker compose -f despliegue/compose.dev.yml exec -T db psql -U agrovision -d agrovision < project/servicios/base-datos/init/04_escala.sql
 
 # Sin Docker. Los servidores se corren desde app/: importan sus módulos sin paquete,
 # igual que en la imagen (con "uvicorn app.server:app" falla el import)
