@@ -41,6 +41,19 @@ Compartido y despliegue:
   y hay 16 veces menos celdas. Lo que sí hay que saber es que `georref` deshace
   la reducción con el `factor_x`/`factor_y` de cada celda y no con la escala,
   porque en una celda del borde del raster no son lo mismo.
+- **Al terminar un análisis se fusionan las detecciones partidas por el borde
+  de una celda** (`datos.fusionar_detecciones_vecinas`), y recién al terminar
+  porque las dos mitades pueden haber salido en bloques distintos del streaming.
+  Se une **solo entre celdas distintas y vecinas**: medido sobre un análisis
+  real, de los pares de la misma clase que se tocan, 284 estaban dentro de una
+  misma celda (manchas que el modelo separó a propósito) y 54 cruzaban el borde.
+  El navegador ya recibió las piezas sueltas por SSE, así que el chunk final
+  avisa con `fusion` y hay que recargar para ver lo guardado.
+- **Las superficies por detección se superponen entre sí.** Sumar
+  `area_m2` de todas las detecciones de un análisis da un 12-15 % de más que
+  `ST_Area(ST_Union(contorno))`: el modelo emite instancias que se pisan (211
+  pares dentro de la misma celda con 69 % de solape medio en un análisis de
+  463). La fusión entre celdas no toca eso.
 - **El dashboard sigue midiendo cobertura por celdas de 640 px,** no por superficie de los contornos (`datos.estadisticas_dashboard`): ahora que hay áreas reales, eso se puede mejorar.
 
 **`project/mvp/` es el monolito anterior** y queda como referencia: un backend FastAPI que hace todo (teselas, lectura del raster e inferencia) y el front en React. Gran parte de este archivo todavía describe el MVP; la sección 9 de `docs/arquitectura.md` dice a dónde fue cada archivo. `project/entrenamiento` es un archivo vacío que quedó de la re-estructuración.

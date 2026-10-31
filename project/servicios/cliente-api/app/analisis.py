@@ -117,6 +117,34 @@ def ejecutar_inspeccion_segmentada(
             }
             yield chunk
 
+        # Recién acá están todas las piezas: una mancha partida por el borde de
+        # una celda pudo salir en dos bloques distintos del streaming, así que
+        # esto no se puede hacer mientras se recorre. Ver
+        # datos.fusionar_detecciones_vecinas sobre por qué solo entre celdas.
+        fusion = datos.fusionar_detecciones_vecinas(
+            analisis_id, geo.latlon_a_pixeles_globales
+        )
+        if fusion["grupos"]:
+            # Cada grupo deja una detección donde había varias
+            total_acumuladas -= fusion["fusionadas"] - fusion["grupos"]
+            print(
+                f"[FUSION] analisis={analisis_id}: {fusion['fusionadas']} detecciones "
+                f"partidas por el borde de una celda quedaron en {fusion['grupos']}"
+            )
+            # El navegador ya recibió las piezas sueltas por SSE; este chunk le
+            # avisa que lo guardado cambió y con cuánto, para que las recargue.
+            yield {
+                "analisis_id": analisis_id,
+                "escala": geo.escala,
+                "bloque": len(segmentos),
+                "total_bloques": len(segmentos),
+                "progreso_pct": 100.0,
+                "activas": 0,
+                "detecciones": [],
+                "total_acumuladas": total_acumuladas,
+                "fusion": fusion,
+            }
+
     except KeyboardInterrupt:
         print("\n[AVISO] Inspección detenida manualmente.")
         estado_final = "error"

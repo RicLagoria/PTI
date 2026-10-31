@@ -6,7 +6,7 @@ en disco es el .tif en sí (almacen.py), todo lo consultable vive acá.
 import csv
 import io
 import json
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Tuple
 
 from auth import conexion
 
@@ -233,6 +233,166 @@ def insertar_detecciones(analisis_id: int, detecciones: List[Dict]) -> None:
             filas,
         )
         con.commit()
+
+
+# Dos mitades de una mancha cortada por el borde de una celda quedan pegadas,
+# pero no exactamente: el contorno se simplifica en ia-inferencia (Douglas-Peucker
+# al 0,4 % del perímetro) y eso corre el borde de cada mitad uno o dos píxeles.
+# 25 cm son unos 8 píxeles a 3,3 cm/px: alcanza para esa holgura y queda muy por
+# debajo de la separación entre dos manchas que de verdad son distintas.
+TOLERANCIA_FUSION_M = 0.25
+
+
+def _raiz(padres: Dict[int, int], x: int) -> int:
+    while padres[x] != x:
+        padres[x] = padres[padres[x]]
+        x = padres[x]
+    return x
+
+
+def fusionar_detecciones_vecinas(
+    analisis_id: int,
+    a_pixeles: Callable[[List[Tuple[float, float]]], List[Tuple[float, float]]],
+    tolerancia_m: float = TOLERANCIA_FUSION_M,
+) -> Dict:
+    """
+    Une las detecciones de la misma clase que quedaron partidas por el borde de
+    una celda, y devuelve cuántas se fusionaron.
+
+    El recorrido parte el campo en una grilla, así que una mancha más ancha que
+    una celda sale como dos detecciones, cada una con su superficie: el informe
+    cuenta dos manchas donde hay una y ninguna de las dos mide lo que mide la
+    mancha. Esto lo arregla después de analizar, que es el único momento en el
+    que están todas las piezas: dos mitades pueden haber caído en bloques
+    distintos del streaming.
+
+    **Solo se fusionan detecciones de celdas distintas**, y eso no es un detalle.
+    Medido sobre un análisis real de 463 detecciones, de los pares de la misma
+    clase que se tocan 284 caen dentro de una misma celda y 54 cruzan el borde.
+    Los primeros son manchas que el modelo decidió separar aunque se toquen, y
+    unirlas sería pisarle la decisión; el artefacto que hay que corregir es el
+    segundo, que lo introdujo la grilla y no el modelo.
+
+    No hace falta solapar la grilla para esto: las dos mitades quedan a
+    distancia ~0 porque las dos se cortaron contra la misma línea.
+
+    Se corre **una sola vez por análisis**, desde el generador de analisis.py.
+    No es idempotente: la detección que sale de fusionar un grupo se queda con
+    la celda de su pieza mayor, así que ya no está contenida en esa celda y en
+    una segunda pasada podría unirse con vecinas que la primera no tocó.
+
+    `a_pixeles` convierte [(lat, lon), ...] a píxeles del ortomosaico. Se recibe
+    de afuera para que este módulo no tenga que abrir el raster, y hace falta
+    porque la detección fusionada también necesita su contorno en píxeles: es
+    con lo que el informe en PDF dibuja sobre la imagen.
+    """
+    resumen = {"grupos": 0, "fusionadas": 0}
+
+    with conexion() as con:
+        aristas = con.execute(
+            """
+            SELECT a.id AS a_id, b.id AS b_id
+            FROM detecciones a
+            JOIN detecciones b
+              ON b.analisis_id = a.analisis_id
+             AND b.id > a.id
+             AND b.clase = a.clase
+             -- Celdas distintas: ver el docstring, es la condición que distingue
+             -- el corte de la grilla de dos manchas vecinas de verdad
+             AND (b.fila, b.col) <> (a.fila, a.col)
+             -- Y celdas vecinas. No es una aproximación: un contorno no se sale
+             -- de su celda, así que dos piezas a menos de la tolerancia están sí
+             -- o sí en celdas que se tocan; dos celdas que no se tocan están a
+             -- un ancho de celda de distancia (640 px, unos 21 m). Va acá y no
+             -- en el filtro de después porque es lo único que puede usar un
+             -- índice: ST_DWithin sobre geography no usa el GIST de contorno,
+             -- y sin esta línea la consulta compara cada detección contra todas
+             -- (medido: 195 s contra 4,2 s en un análisis de 2366 detecciones).
+             AND ABS(b.fila - a.fila) <= 1 AND ABS(b.col - a.col) <= 1
+             AND ST_DWithin(a.contorno::geography, b.contorno::geography, %s)
+            WHERE a.analisis_id = %s
+              AND a.contorno IS NOT NULL
+              AND b.contorno IS NOT NULL
+            """,
+            (tolerancia_m, analisis_id),
+        ).fetchall()
+
+    if not aristas:
+        return resumen
+
+    padres: Dict[int, int] = {}
+    for arista in aristas:
+        for ident in (arista["a_id"], arista["b_id"]):
+            padres.setdefault(ident, ident)
+        ra, rb = _raiz(padres, arista["a_id"]), _raiz(padres, arista["b_id"])
+        if ra != rb:
+            padres[rb] = ra
+
+    grupos: Dict[int, List[int]] = {}
+    for ident in padres:
+        grupos.setdefault(_raiz(padres, ident), []).append(ident)
+
+    # Una sola conexión para todos los grupos: un análisis denso puede dejar
+    # cientos, y abrir una por grupo multiplica el costo por nada.
+    with conexion() as con:
+        for ids in grupos.values():
+            if len(ids) < 2:
+                continue
+            fila = con.execute(
+                """
+                SELECT clase,
+                       MAX(confianza) AS confianza,
+                       ST_X(ST_Centroid(ST_Union(contorno))) AS lon,
+                       ST_Y(ST_Centroid(ST_Union(contorno))) AS lat,
+                       ST_AsGeoJSON(ST_Multi(ST_CollectionExtract(
+                           ST_MakeValid(ST_Union(contorno)), 3))) AS geojson,
+                       -- La celda de la pieza más grande: es la que mejor
+                       -- representa dónde está la mancha dentro de la grilla
+                       (array_agg(fila ORDER BY ST_Area(contorno::geography) DESC))[1] AS fila,
+                       (array_agg(col  ORDER BY ST_Area(contorno::geography) DESC))[1] AS col,
+                       MIN(box_global_px[1]) AS x1, MIN(box_global_px[2]) AS y1,
+                       MAX(box_global_px[3]) AS x2, MAX(box_global_px[4]) AS y2
+                FROM detecciones
+                WHERE id = ANY(%s)
+                GROUP BY clase
+                """,
+                (ids,),
+            ).fetchone()
+            if fila is None or not fila["geojson"]:
+                continue
+
+            # El anillo de la pieza de mayor área, igual que al leer una
+            # detección: las otras piezas son esquirlas de unos pocos píxeles
+            piezas = json.loads(fila["geojson"])["coordinates"]
+            anillo = max(piezas, key=lambda p: len(p[0]))[0]
+            pixeles = a_pixeles([(lat, lon) for lon, lat in anillo])
+            plano = [int(round(v)) for punto in pixeles for v in punto]
+
+            con.execute(
+                """
+                INSERT INTO detecciones
+                    (analisis_id, clase, confianza, ubicacion, box_global_px, fila, col,
+                     contorno, contorno_global_px)
+                VALUES (%s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, %s,
+                        ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), %s)
+                """,
+                (
+                    analisis_id, fila["clase"], fila["confianza"], fila["lon"], fila["lat"],
+                    [fila["x1"], fila["y1"], fila["x2"], fila["y2"]],
+                    fila["fila"], fila["col"], fila["geojson"], plano,
+                ),
+            )
+            con.execute("DELETE FROM detecciones WHERE id = ANY(%s)", (ids,))
+
+            resumen["grupos"] += 1
+            resumen["fusionadas"] += len(ids)
+
+        # Un solo commit: o se fusiona todo o no se fusiona nada. A mitad de
+        # camino el análisis quedaría con unas manchas unidas y otras no, que es
+        # peor que no haber fusionado, porque no se nota.
+        con.commit()
+
+    return resumen
 
 
 def obtener_detecciones(analisis_id: int) -> List[Dict]:

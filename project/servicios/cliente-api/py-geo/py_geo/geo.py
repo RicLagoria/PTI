@@ -135,6 +135,30 @@ class GeoHandler:
             lons, lats = transformar_coordenadas(self.src.crs, CRS_WGS84, list(lons), list(lats))
         return list(zip(lats, lons))
 
+    def latlon_a_pixeles_globales(
+        self, puntos: List[Tuple[float, float]]
+    ) -> List[Tuple[float, float]]:
+        """
+        La vuelta de `pixeles_globales_a_latlon`: de [(lat, lon), ...] a píxeles
+        del ortomosaico, con una sola reproyección para todos los puntos.
+
+        Hace falta al fusionar dos detecciones: PostGIS une los contornos en
+        coordenadas geográficas, pero la detección resultante también necesita
+        su contorno en píxeles, que es con lo que el informe en PDF dibuja sobre
+        la imagen. Sin esto, una detección fusionada saldría como un punto.
+        """
+        if not puntos:
+            return []
+        lats = [lat for lat, _ in puntos]
+        lons = [lon for _, lon in puntos]
+        if self.src.crs != CRS_WGS84:
+            lons, lats = transformar_coordenadas(CRS_WGS84, self.src.crs, lons, lats)
+        # rowcol redondea a entero; con op=float devuelve la posición exacta
+        filas, columnas = rasterio.transform.rowcol(
+            self.transform, list(lons), list(lats), op=lambda v: v
+        )
+        return list(zip(columnas, filas))
+
     def leer_tile_filtrado(
         self,
         x: int,
