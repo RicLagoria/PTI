@@ -156,6 +156,57 @@ si algo no sirve, con el detalle de qué corregir:
 
 En cada entrenamiento, el 20% de las imágenes de cada aporte va a validación.
 
+## Aportes de escala gruesa: `herramientas/ventanas_multiescala.py`
+
+El modelo mira el campo a través de una tesela de 640 px, que en un ortomosaico
+de 3,3 cm/px son unos 21 m. Una mancha más grande que eso no entra en la imagen
+y el modelo nunca la ve entera, así que aprende a cortarla. En el dataset de El
+Azul se mide: **una de cada cuatro manchas etiquetadas (24,9 %) toca el borde de
+su tesela**, y el percentil 95 del lado está pegado a los 680 px, o sea que la
+distribución está cortada por el encuadre y no por el campo.
+
+El script arma imágenes de escala gruesa sin que haya que reetiquetar nada:
+pega N×N teselas vecinas, reduce el resultado a 640 px y recompone las etiquetas
+sumando el desplazamiento de cada tesela y multiplicando por el factor de
+reducción. Lo que lo hace posible es que las teselas se recortaron con su
+posición en el nombre (`tile_x<col>_y<fila>`), así que se sabe cuáles son vecinas.
+
+```bash
+python herramientas/ventanas_multiescala.py \
+    --origen ~/Documents/PTI/dataset_tiles \
+    --destino ~/Documents/PTI/dataset_tiles/ventanas --escalas 2,3,4
+```
+
+Tres cosas que no son evidentes:
+
+- **Une las manchas partidas por una costura interna.** Una mancha a caballo de
+  dos teselas se etiquetó dos veces, una mitad en cada una, y al pegarlas siguen
+  siendo dos formas. Las que tocan una costura se rasterizan juntas por clase y
+  se les vuelve a trazar el contorno, que es lo que las fusiona; las demás pasan
+  tal cual, para no juntar dos manchas que el equipo dibujó aparte a propósito.
+  Sin este paso la ventana grande tendría dos manchas pegadas donde hay una, que
+  es el mismo error que se quiere corregir.
+- **Las ventanas de una escala no se solapan**, y arrancan en múltiplos de la
+  escala. Con paso de una tesela saldrían hasta N² veces más ventanas, pero casi
+  iguales entre sí, y el split de validación es al azar dentro del aporte: dos
+  ventanas corridas una tesela comparten casi todo el terreno, y si una cae en
+  entrenamiento y la otra en validación las métricas no miden nada.
+- **Una ventana se descarta si le falta una tesela o si alguna no está
+  etiquetada.** Una tesela sin `.json` no se sabe si no tiene maleza o si nadie
+  la miró, y meterla en la ventana le enseñaría al modelo que esa maleza es fondo.
+
+Sale una carpeta por escala, para subir cada una como un aporte distinto: así
+cada escala queda representada en validación. Sobre las 3233 teselas etiquetadas
+de El Azul da 698 ventanas de 2×, 278 de 3× y 143 de 4×, y el recorte de manchas
+baja de 24,9 % a 17,5 % en las de 4×.
+
+**Ojo con comparar métricas entre versiones** cuando se entrena con estos
+aportes: cubren el mismo terreno que los aportes finos, a otra escala, y el
+split de validación es por aporte. Una ventana de 4× puede caer en validación
+mientras las teselas finas de ese mismo pedazo de campo están en entrenamiento,
+y el mAP sale optimista. Para que vuelva a ser comparable haría falta partir
+validación por geografía y no al azar, en `nucleo/ensamblado.py`.
+
 ## Validación y evaluación de cada versión
 
 Cada entrenamiento separa una parte de cada aporte para validar: 25% por
