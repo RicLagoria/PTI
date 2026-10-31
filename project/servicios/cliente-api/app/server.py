@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 from typing import Optional
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
@@ -10,6 +11,8 @@ from pydantic import BaseModel
 
 import almacen
 import auth
+import datos
+import reportes
 from analisis import ejecutar_inspeccion_segmentada
 from teselas import renderizar_tesela_png
 
@@ -33,12 +36,14 @@ class CredencialesLogin(BaseModel):
     contrasena: str
 
 
-def carpeta_imagen(imagen_id: str):
-    """Resuelve el id de la URL a la carpeta de la imagen o corta con 404."""
-    carpeta = almacen.carpeta_de(imagen_id)
-    if carpeta is None:
+def carpeta_imagen(imagen_id: str) -> Path:
+    """Resuelve el id de la URL a la carpeta de la imagen (vía la tabla ortomosaicos) o corta con 404."""
+    if not almacen.validar_id(imagen_id):
         raise HTTPException(status_code=404, detail="Imagen no encontrada.")
-    return carpeta
+    ruta_archivo = datos.obtener_ruta_archivo(imagen_id)
+    if ruta_archivo is None:
+        raise HTTPException(status_code=404, detail="Imagen no encontrada.")
+    return Path(ruta_archivo).parent
 
 
 @app.get("/salud")
@@ -69,7 +74,8 @@ def perfil_actual(usuario=Depends(auth.usuario_actual)):
 async def subir_imagen(request: Request, nombre: str = "ortomosaico.tif", usuario=Depends(auth.usuario_actual)):
     """
     Recibe el GeoTIFF como cuerpo crudo de la petición y lo escribe a disco por partes.
-    Al terminar lo valida y lo convierte a COG si hace falta.
+    Al terminar lo valida, lo convierte a COG si hace falta, y registra la
+    metadata en la tabla ortomosaicos (el .tif en sí sigue solo en disco).
     """
     nombre = nombre.replace("\\", "/").split("/")[-1][:200]
     if not nombre.lower().endswith(almacen.EXTENSIONES_VALIDAS):
@@ -93,7 +99,18 @@ async def subir_imagen(request: Request, nombre: str = "ortomosaico.tif", usuari
         if recibidos == 0:
             raise HTTPException(status_code=400, detail="No se recibió ningún archivo.")
 
-        return await run_in_threadpool(almacen.finalizar_subida, imagen_id, nombre)
+        meta = await run_in_threadpool(almacen.finalizar_subida, imagen_id, nombre)
+        return datos.registrar_ortomosaico(
+            id_=imagen_id,
+            usuario_id=usuario["id"],
+            nombre=nombre,
+            ancho_px=meta["ancho_px"],
+            alto_px=meta["alto_px"],
+            bounds=meta["bounds"],
+            minzoom=meta["minzoom"],
+            maxzoom=meta["maxzoom"],
+            ruta_archivo=meta["ruta_archivo"],
+        )
     except almacen.ImagenInvalida as e:
         almacen.descartar(imagen_id)
         raise HTTPException(status_code=400, detail=str(e))
@@ -104,8 +121,8 @@ async def subir_imagen(request: Request, nombre: str = "ortomosaico.tif", usuari
 
 @app.get("/imagenes")
 def listar_imagenes(usuario=Depends(auth.usuario_actual)):
-    """Imágenes ya subidas."""
-    return almacen.listar()
+    """Imágenes ya subidas por cualquiera del equipo (no son privadas por usuario)."""
+    return datos.listar_ortomosaicos()
 
 
 # ==========================================================
@@ -126,9 +143,12 @@ def obtener_tesela(z: int, x: int, y: int, carpeta=Depends(carpeta_imagen), usua
 # 3. METADATOS Y BOUNDS
 # ==========================================================
 @app.get("/imagenes/{imagen_id}/metadata")
-def obtener_metadata(carpeta=Depends(carpeta_imagen), usuario=Depends(auth.usuario_actual)):
+def obtener_metadata(imagen_id: str, usuario=Depends(auth.usuario_actual)):
     """Devuelve las coordenadas envolventes y dimensiones del ortomosaico."""
-    return almacen.leer_meta(carpeta)
+    meta = datos.obtener_ortomosaico(imagen_id)
+    if meta is None:
+        raise HTTPException(status_code=404, detail="Imagen no encontrada.")
+    return meta
 
 
 # ==========================================================
@@ -136,6 +156,7 @@ def obtener_metadata(carpeta=Depends(carpeta_imagen), usuario=Depends(auth.usuar
 # ==========================================================
 @app.get("/imagenes/{imagen_id}/analizar-stream")
 def analizar_campo_stream(
+    imagen_id: str,
     cuadrante: Optional[int] = None,
     conf: float = 0.10,
     carpeta=Depends(carpeta_imagen),
@@ -143,15 +164,25 @@ def analizar_campo_stream(
 ):
     """
     Consume el generador de analisis.py y transmite cada bloque vía Server-Sent Events.
+    Cada corrida queda guardada en la tabla analisis (no pisa la anterior).
     """
     def generador_eventos():
-        for chunk in ejecutar_inspeccion_segmentada(
-            ruta_tif=str(carpeta / almacen.NOMBRE_COG),
-            cuadrante=cuadrante,
-            ruta_json=str(carpeta / almacen.NOMBRE_DETECCIONES),
-            conf=conf
-        ):
-            yield f"data: {json.dumps(chunk)}\n\n"
+        try:
+            for chunk in ejecutar_inspeccion_segmentada(
+                ruta_tif=str(carpeta / almacen.NOMBRE_COG),
+                ortomosaico_id=imagen_id,
+                usuario_id=usuario["id"],
+                cuadrante=cuadrante,
+                conf=conf
+            ):
+                yield f"data: {json.dumps(chunk)}\n\n"
+        except Exception as e:
+            # Si algo se corta a mitad de camino (ia-inferencia no responde, se
+            # cae la base, etc.) mejor cerrar el stream prolijo: si dejamos que
+            # la excepción se escape acá, el chunked transfer queda a medias y
+            # el navegador lo ve como ERR_INCOMPLETE_CHUNKED_ENCODING en vez de
+            # un cierre normal que el EventSource.onerror del front ya maneja.
+            print(f"[ERROR] analizar-stream cortado: {e}")
 
     return StreamingResponse(generador_eventos(), media_type="text/event-stream")
 
@@ -161,6 +192,7 @@ def analizar_campo_stream(
 # ==========================================================
 @app.post("/imagenes/{imagen_id}/analizar")
 def analizar_campo_completo(
+    imagen_id: str,
     cuadrante: Optional[int] = None,
     conf: float = 0.10,
     carpeta=Depends(carpeta_imagen),
@@ -170,10 +202,89 @@ def analizar_campo_completo(
     resultado_final = None
     for chunk in ejecutar_inspeccion_segmentada(
         ruta_tif=str(carpeta / almacen.NOMBRE_COG),
+        ortomosaico_id=imagen_id,
+        usuario_id=usuario["id"],
         cuadrante=cuadrante,
-        ruta_json=str(carpeta / almacen.NOMBRE_DETECCIONES),
         conf=conf
     ):
         resultado_final = chunk
 
     return resultado_final
+
+
+# ==========================================================
+# 6. HISTORIAL DE ANÁLISIS
+# ==========================================================
+def _analisis_de_la_imagen(imagen_id: str, analisis_id: int) -> dict:
+    """Trae un análisis puntual y valida que sea de la imagen de la URL."""
+    fila = datos.obtener_analisis(analisis_id)
+    if fila is None or fila["ortomosaico_id"] != imagen_id:
+        raise HTTPException(status_code=404, detail="Análisis no encontrado.")
+    return fila
+
+
+@app.get("/imagenes/{imagen_id}/analisis")
+def listar_historial_analisis(imagen_id: str, carpeta=Depends(carpeta_imagen), usuario=Depends(auth.usuario_actual)):
+    """Todas las corridas anteriores sobre esta imagen, más reciente primero."""
+    return datos.listar_analisis(imagen_id)
+
+
+@app.get("/imagenes/{imagen_id}/analisis/{analisis_id}")
+def obtener_analisis_pasado(imagen_id: str, analisis_id: int, usuario=Depends(auth.usuario_actual)):
+    """Para volver a ver un análisis viejo sin tener que re-ejecutarlo."""
+    fila = _analisis_de_la_imagen(imagen_id, analisis_id)
+    return {**fila, "detecciones": datos.obtener_detecciones(analisis_id)}
+
+
+@app.get("/imagenes/{imagen_id}/analisis/{analisis_id}/exportar.geojson")
+def exportar_geojson(imagen_id: str, analisis_id: int, usuario=Depends(auth.usuario_actual)):
+    _analisis_de_la_imagen(imagen_id, analisis_id)
+    geojson = datos.exportar_geojson(analisis_id)
+    return Response(
+        content=json.dumps(geojson),
+        media_type="application/geo+json",
+        headers={"Content-Disposition": f'attachment; filename="analisis-{analisis_id}.geojson"'},
+    )
+
+
+@app.get("/imagenes/{imagen_id}/analisis/{analisis_id}/exportar.csv")
+def exportar_csv(imagen_id: str, analisis_id: int, usuario=Depends(auth.usuario_actual)):
+    _analisis_de_la_imagen(imagen_id, analisis_id)
+    csv_texto = datos.exportar_csv(analisis_id)
+    return Response(
+        content=csv_texto,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="analisis-{analisis_id}.csv"'},
+    )
+
+
+@app.get("/imagenes/{imagen_id}/analisis/{analisis_id}/exportar.pdf")
+def exportar_pdf(imagen_id: str, analisis_id: int, usuario=Depends(auth.usuario_actual)):
+    """Informe visual: la imagen del campo con las detecciones marcadas, no solo datos crudos."""
+    analisis = _analisis_de_la_imagen(imagen_id, analisis_id)
+    ortomosaico = datos.obtener_ortomosaico(imagen_id)
+    ruta_archivo = datos.obtener_ruta_archivo(imagen_id)
+    if ortomosaico is None or ruta_archivo is None:
+        raise HTTPException(status_code=404, detail="Imagen no encontrada.")
+    detecciones = datos.obtener_detecciones(analisis_id)
+
+    pdf_bytes = reportes.generar_pdf(
+        ortomosaico={**ortomosaico, "ruta_archivo": ruta_archivo},
+        analisis=analisis,
+        detecciones=detecciones,
+        usuario_nombre=analisis.get("usuario_nombre"),
+    )
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="analisis-{analisis_id}.pdf"'},
+    )
+
+
+# ==========================================================
+# 7. DASHBOARD
+# ==========================================================
+@app.get("/estadisticas")
+def estadisticas(usuario=Depends(auth.usuario_actual)):
+    """Los KPI reales del dashboard: cobertura, confianza del modelo, eficiencia del pipeline."""
+    return datos.estadisticas_dashboard()

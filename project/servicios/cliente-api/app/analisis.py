@@ -1,4 +1,3 @@
-import json
 import math
 import os
 from typing import Generator, Optional
@@ -14,6 +13,7 @@ except ImportError:
         sys.path.insert(0, str(ruta_compartido))
     from py_geo.geo import GeoHandler
 
+import datos
 from cliente_ia import ClienteIA
 from georref import traducir_deteccion
 
@@ -22,43 +22,45 @@ TAMANO_LOTE_MAX = int(os.environ.get("TAMANO_LOTE_MAX", "16"))
 
 def ejecutar_inspeccion_segmentada(
     ruta_tif: str,
+    ortomosaico_id: str,
+    usuario_id: int,
     cuadrante: Optional[int] = None,
-    ruta_json: str = "detecciones.json",
     conf: float = 0.10
 ) -> Generator[dict, None, None]:
     """
     Generador que procesa el ortomosaico en bloques de a lo sumo TAMANO_LOTE_MAX celdas.
     Lee ventanas del raster mediante py-geo, envía teselas activas al servicio
     ia-inferencia mediante HTTP, traduce las cajas a coordenadas globales y WGS84,
-    y emite (yield) cada bloque conforme finaliza.
+    y las persiste en la tabla detecciones a medida que llegan (no se acumulan
+    en memoria ni se pisan corridas anteriores: cada llamada crea su propia
+    fila en "analisis").
     """
     cliente_ia = ClienteIA()
     info_modelo = cliente_ia.obtener_modelo()
     tamano_tile = info_modelo.get("imgsz", 640)
+    version_modelo = info_modelo.get("version", "v1")
 
     geo = GeoHandler(ruta_tif, tamano_tile=tamano_tile)
     celdas = geo.obtener_lista_cuadrantes(cuadrante=cuadrante)
     total_celdas = len(celdas)
 
+    analisis_id = datos.crear_analisis(
+        ortomosaico_id=ortomosaico_id,
+        usuario_id=usuario_id,
+        version_modelo=version_modelo,
+        conf_umbral=conf,
+        cuadrante=cuadrante,
+        total_celdas=total_celdas,
+    )
+
     tamano_segmento = min(TAMANO_LOTE_MAX, max(1, math.ceil(total_celdas / 10)))
     segmentos = [celdas[i:i + tamano_segmento] for i in range(0, total_celdas, tamano_segmento)]
 
-    estructura_datos = {
-        "metadata": {
-            "archivo": ruta_tif,
-            "version_modelo": info_modelo.get("version", "v1"),
-            "ancho_total_px": geo.ancho_total,
-            "alto_total_px": geo.alto_total,
-            "tamano_tile": geo.tamano_tile,
-            "total_celdas": total_celdas,
-            "segmentos_totales": len(segmentos)
-        },
-        "progreso_actual_pct": 0,
-        "bloques_procesados": 0,
-        "detecciones": []
-    }
+    total_acumuladas = 0
+    total_activas = 0
+    estado_final = "completo"
 
-    print(f"[INICIO] {total_celdas} celdas en {len(segmentos)} bloques (max {tamano_segmento} celdas c/u). imgsz={tamano_tile}")
+    print(f"[INICIO] analisis={analisis_id} {total_celdas} celdas en {len(segmentos)} bloques (max {tamano_segmento} celdas c/u). imgsz={tamano_tile}")
 
     try:
         for seg_idx, segmento in enumerate(segmentos):
@@ -76,6 +78,8 @@ def ejecutar_inspeccion_segmentada(
                     if ok:
                         lote_a_enviar.append((tile_id, buf.tobytes()))
 
+            total_activas += len(lote_a_enviar)
+
             detecciones_bloque = []
             if lote_a_enviar:
                 detecciones_ia = cliente_ia.detectar_lote(lote_a_enviar, conf=conf)
@@ -86,30 +90,33 @@ def ejecutar_inspeccion_segmentada(
                         det_global = traducir_deteccion(det, celda_meta, geo)
                         detecciones_bloque.append(det_global)
 
-            estructura_datos["detecciones"].extend(detecciones_bloque)
+            if detecciones_bloque:
+                datos.insertar_detecciones(analisis_id, detecciones_bloque)
+            total_acumuladas += len(detecciones_bloque)
 
             progreso_pct = round(((seg_idx + 1) / len(segmentos)) * 100, 1) if segmentos else 100.0
-            estructura_datos["progreso_actual_pct"] = progreso_pct
-            estructura_datos["bloques_procesados"] = seg_idx + 1
 
             chunk = {
+                "analisis_id": analisis_id,
                 "bloque": seg_idx + 1,
                 "total_bloques": len(segmentos),
                 "progreso_pct": progreso_pct,
                 "activas": len(lote_a_enviar),
                 "detecciones": detecciones_bloque,
-                "total_acumuladas": len(estructura_datos["detecciones"])
+                "total_acumuladas": total_acumuladas
             }
             yield chunk
 
     except KeyboardInterrupt:
         print("\n[AVISO] Inspección detenida manualmente.")
+        estado_final = "error"
+
+    except Exception as e:
+        print(f"[ERROR] analisis={analisis_id}: {e}")
+        estado_final = "error"
+        raise
 
     finally:
         geo.cerrar()
-        try:
-            with open(ruta_json, "w", encoding="utf-8") as f:
-                json.dump(estructura_datos, f, indent=2)
-            print(f"[GUARDADO] Detecciones actualizadas en {ruta_json}")
-        except Exception as e:
-            print(f"[ERROR] No se pudo guardar {ruta_json}: {e}")
+        datos.finalizar_analisis(analisis_id, celdas_activas=total_activas, estado=estado_final)
+        print(f"[GUARDADO] analisis={analisis_id} ({total_acumuladas} detecciones, estado={estado_final})")

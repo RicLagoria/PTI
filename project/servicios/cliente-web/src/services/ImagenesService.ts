@@ -7,6 +7,7 @@ import { conTokenEnUrl, headerAuth } from "./AuthService";
 export interface ImagenMeta {
   id: string;
   nombre: string;
+  usuario_nombre: string | null;
   fecha_subida: string;
   ancho_px: number;
   alto_px: number;
@@ -20,18 +21,38 @@ export interface Deteccion {
   col: number;
   clase: string;
   confianza: number;
-  box_local: number[];
+  box_local?: number[];
   box_global_px: number[];
   gps_centro: { lat: number; lon: number };
 }
 
 export interface ChunkAnalisis {
+  analisis_id: number;
   bloque: number;
   total_bloques: number;
   progreso_pct: number;
   activas: number;
   detecciones: Deteccion[];
   total_acumuladas: number;
+}
+
+export interface AnalisisHistorial {
+  id: number;
+  version_modelo: string;
+  conf_umbral: number;
+  cuadrante: number | null;
+  fecha_inicio: string;
+  fecha_fin: string | null;
+  total_celdas: number;
+  celdas_activas: number | null;
+  estado: "en_progreso" | "completo" | "error";
+  usuario_nombre: string | null;
+  total_detecciones: number;
+}
+
+export interface AnalisisDetalle extends AnalisisHistorial {
+  ortomosaico_id: string;
+  detecciones: Deteccion[];
 }
 
 async function manejarError(res: Response, mensajeDefault: string): Promise<never> {
@@ -129,4 +150,50 @@ export function analizarEnVivo(
   };
 
   return es;
+}
+
+// =====================================
+// Historial de análisis (ya no se pisan entre sí: cada corrida queda
+// guardada en Postgres, ver datos.py del lado del servidor).
+// =====================================
+
+export async function listarHistorialAnalisis(imagenId: string): Promise<AnalisisHistorial[]> {
+  const res = await fetch(`${ApiConfig.baseURL}/imagenes/${imagenId}/analisis`, { headers: headerAuth() });
+  if (!res.ok) return manejarError(res, "No se pudo obtener el historial de análisis.");
+  return res.json();
+}
+
+export async function obtenerAnalisisPasado(imagenId: string, analisisId: number): Promise<AnalisisDetalle> {
+  const res = await fetch(`${ApiConfig.baseURL}/imagenes/${imagenId}/analisis/${analisisId}`, { headers: headerAuth() });
+  if (!res.ok) return manejarError(res, "No se pudo obtener ese análisis.");
+  return res.json();
+}
+
+/** Son <a href download>, no fetch: el token viaja en la URL igual que en teselas/SSE. */
+export function urlExportarGeoJSON(imagenId: string, analisisId: number): string {
+  return conTokenEnUrl(`${ApiConfig.baseURL}/imagenes/${imagenId}/analisis/${analisisId}/exportar.geojson`);
+}
+
+export function urlExportarCSV(imagenId: string, analisisId: number): string {
+  return conTokenEnUrl(`${ApiConfig.baseURL}/imagenes/${imagenId}/analisis/${analisisId}/exportar.csv`);
+}
+
+/** El informe visual: la imagen del campo con las detecciones marcadas, no solo datos. */
+export function urlExportarPDF(imagenId: string, analisisId: number): string {
+  return conTokenEnUrl(`${ApiConfig.baseURL}/imagenes/${imagenId}/analisis/${analisisId}/exportar.pdf`);
+}
+
+// Para la vista previa en el drawer (fetch con header, no <a href>): traen el
+// contenido ya mismo en vez de solo la URL de descarga.
+
+export async function obtenerTextoExportado(imagenId: string, analisisId: number, formato: "geojson" | "csv"): Promise<string> {
+  const res = await fetch(`${ApiConfig.baseURL}/imagenes/${imagenId}/analisis/${analisisId}/exportar.${formato}`, { headers: headerAuth() });
+  if (!res.ok) return manejarError(res, `No se pudo obtener el ${formato.toUpperCase()}.`);
+  return res.text();
+}
+
+export async function obtenerPdfBlob(imagenId: string, analisisId: number): Promise<Blob> {
+  const res = await fetch(`${ApiConfig.baseURL}/imagenes/${imagenId}/analisis/${analisisId}/exportar.pdf`, { headers: headerAuth() });
+  if (!res.ok) return manejarError(res, "No se pudo generar el PDF.");
+  return res.blob();
 }

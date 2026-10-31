@@ -1,6 +1,7 @@
 // =====================================
 // src/components/Home/Home.tsx
 // =====================================
+import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import {
   Navbar,
@@ -18,6 +19,7 @@ import { Leaf, Image, LayoutGrid, Settings2, UserCircle2, ChevronDown, User, Log
 
 import { useAppContext } from "../../context/AppContext";
 import LoginPage from "../login/LoginPage";
+import { obtenerEstadisticas } from "../../services/EstadisticasService";
 
 const tabs = [
   { id: "/", label: "Dashboard", icon: LayoutGrid, path: "/" },
@@ -29,6 +31,14 @@ export default function Home() {
   const { isLoggedIn, perfil, cerrarSesion } = useAppContext();
   const location = useLocation();
   const navegar = useNavigate();
+  const [ultimoAnalisis, setUltimoAnalisis] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    obtenerEstadisticas()
+      .then((stats) => setUltimoAnalisis(stats.ultima_actualizacion))
+      .catch(() => setUltimoAnalisis(null));
+  }, [isLoggedIn]);
 
   if (!isLoggedIn || !perfil) return <LoginPage />;
 
@@ -137,7 +147,11 @@ export default function Home() {
             </div>
             <div className="rounded-2xl bg-white border border-slate-200 px-4 py-3 shadow-sm dark:bg-slate-800 dark:border-slate-700">
               <p className="text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-slate-400">Ultimo analisis</p>
-              <p className="text-lg font-semibold">07 de mayo, 2026</p>
+              <p className="text-lg font-semibold">
+                {ultimoAnalisis
+                  ? new Date(ultimoAnalisis).toLocaleDateString("es-AR", { day: "2-digit", month: "long", year: "numeric" })
+                  : "Sin análisis todavía"}
+              </p>
             </div>
           </div>
 
