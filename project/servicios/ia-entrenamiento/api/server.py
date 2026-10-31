@@ -111,7 +111,14 @@ def listar_datasets():
 # Sin async: la conversión lee y escribe cada imagen, y en un endpoint async
 # bloquearía el event loop (y con él los streams de entrenamiento) mientras dura.
 @app.post("/datasets", status_code=201)
-def subir_dataset(archivo: UploadFile = File(...), nombre: Optional[str] = Form(None)):
+def subir_dataset(
+    archivo: UploadFile = File(...),
+    nombre: Optional[str] = Form(None),
+    # Las imágenes sin .json entran como ejemplo negativo en vez de ignorarse.
+    # Apagado por defecto: declarar fondo una imagen que nadie miró le enseña al
+    # modelo que la maleza que hay ahí no es maleza. Lo pide quien sube.
+    fondos_implicitos: bool = Form(False),
+):
     if not (archivo.filename or "").lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="El dataset debe ser un archivo ZIP.")
 
@@ -137,7 +144,9 @@ def subir_dataset(archivo: UploadFile = File(...), nombre: Optional[str] = Form(
         copia.seek(0)
 
         try:
-            return datasets.guardar_dataset_zip(copia, nombre_final, archivo.filename)
+            return datasets.guardar_dataset_zip(
+                copia, nombre_final, archivo.filename, fondos_implicitos
+            )
         except ErrorAporte as e:
             raise HTTPException(status_code=400, detail=e.detalle)
 

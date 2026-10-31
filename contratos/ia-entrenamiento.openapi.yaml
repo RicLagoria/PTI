@@ -143,6 +143,16 @@ paths:
                   format: binary
                 nombre:
                   type: string
+                fondos_implicitos:
+                  type: boolean
+                  default: false
+                  description: >
+                    Declarar como fondo (ejemplo negativo) las imágenes que no tienen
+                    `.json`, en vez de ignorarlas. Hace falta porque labelme no guarda
+                    una imagen en la que no se dibujó nada. Apagado por defecto: una
+                    imagen que nadie revisó declarada como fondo le enseña al modelo que
+                    la maleza que hay ahí no es maleza. El resultado informa cuántas
+                    fueron en `fondos_declarados`.
       responses:
         '201':
           description: Dataset procesado y validado

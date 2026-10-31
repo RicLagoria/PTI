@@ -174,7 +174,9 @@ def _medir_imagen(origen) -> Tuple[int, int, str]:
     return ancho, alto, EXTENSION_POR_FORMATO.get(formato, ".png")
 
 
-def convertir_aporte(raiz: Path, clases: List[str]) -> Tuple[List[Dict], Dict]:
+def convertir_aporte(
+    raiz: Path, clases: List[str], fondos_implicitos: bool = False
+) -> Tuple[List[Dict], Dict]:
     """
     Recorre un aporte descomprimido y convierte cada JSON de labelme a líneas YOLO.
 
@@ -183,6 +185,12 @@ def convertir_aporte(raiz: Path, clases: List[str]) -> Tuple[List[Dict], Dict]:
     `nombre` sugerido, las `lineas` de cajas y las `lineas_contorno` de
     segmentación. Lanza ErrorAporte si hay clases desconocidas o archivos que no
     se pueden usar: se rechaza todo el aporte.
+
+    Con `fondos_implicitos`, las imágenes que no tienen .json entran como
+    ejemplo negativo en vez de ignorarse. No es lo mismo que ignorarlas: una
+    imagen ignorada no le enseña nada al modelo y una declarada como fondo le
+    enseña que ahí no hay maleza, así que si el lote está a medio etiquetar esto
+    lo arruina. Por eso viene apagado y lo pide quien sube el aporte.
     """
     indice_de_clase = {normalizar_etiqueta(c): i for i, c in enumerate(clases)}
 
@@ -293,6 +301,32 @@ def convertir_aporte(raiz: Path, clases: List[str]) -> Tuple[List[Dict], Dict]:
             clases_desconocidas=dict(desconocidas),
             clases_validas=clases,
         )
+    todas = {p.resolve() for p in raiz.rglob("*") if p.is_file() and p.suffix.lower() in EXTENSIONES_IMAGEN}
+    sin_anotar = sorted(todas - imagenes_usadas)
+    fondos_declarados = 0
+
+    if fondos_implicitos:
+        for ruta_imagen in sin_anotar:
+            relativo = ruta_imagen.relative_to(raiz).as_posix()
+            try:
+                # Se mide igual que una imagen con .json: una imagen rota tiene
+                # que rechazar el aporte acá y no reventar al entrenar
+                _medir_imagen(ruta_imagen)
+            except Exception as e:
+                errores.append(f"{relativo}: la imagen no se puede leer ({e})")
+                continue
+            anotaciones.append({
+                "ruta": ruta_imagen,
+                "bytes": None,
+                "extension": ruta_imagen.suffix.lower(),
+                "nombre": ruta_imagen.stem,
+                # Sin formas: es exactamente lo que escribe un .json vacío
+                "lineas": [],
+                "lineas_contorno": [],
+                "origen": relativo,
+            })
+            fondos_declarados += 1
+
     if errores:
         raise ErrorAporte(
             f"{len(errores)} archivo(s) del aporte no se pueden usar.",
@@ -302,7 +336,6 @@ def convertir_aporte(raiz: Path, clases: List[str]) -> Tuple[List[Dict], Dict]:
     if not anotaciones:
         raise ErrorAporte("El ZIP no tiene ninguna anotación de labelme (archivos .json con 'shapes').")
 
-    todas = {p.resolve() for p in raiz.rglob("*") if p.is_file() and p.suffix.lower() in EXTENSIONES_IMAGEN}
     total_contornos = sum(contornos_por_clase.values())
     resumen = {
         "total_imagenes": len(anotaciones),
@@ -310,8 +343,12 @@ def convertir_aporte(raiz: Path, clases: List[str]) -> Tuple[List[Dict], Dict]:
         "anotaciones_por_clase": {c: cajas_por_clase.get(c, 0) for c in clases},
         # Un JSON sin formas es una imagen de fondo explícita: entrena como ejemplo negativo
         "imagenes_sin_objetos": sum(1 for a in anotaciones if not a["lineas"]),
-        # Una imagen sin JSON puede ser un descuido, no un fondo: se ignora y se informa
-        "imagenes_sin_anotar": len(todas - imagenes_usadas),
+        # Una imagen sin JSON puede ser un descuido, no un fondo: se ignora y se
+        # informa. Con fondos_implicitos no queda ninguna, porque entraron todas
+        # como ejemplo negativo; cuántas fueron se dice aparte.
+        "imagenes_sin_anotar": 0 if fondos_implicitos else len(sin_anotar),
+        # Imágenes sin .json que se declararon fondo al subir, en vez de ignorarse
+        "fondos_declarados": fondos_declarados,
         "formas_ignoradas": formas_ignoradas,
         "cajas_descartadas": cajas_descartadas,
         # Segmentación: con qué se puede entrenar un modelo "segment". Un aporte
@@ -321,8 +358,8 @@ def convertir_aporte(raiz: Path, clases: List[str]) -> Tuple[List[Dict], Dict]:
         "contornos_de_caja": contornos_de_caja,
         "contornos_descartados": contornos_descartados,
         # Si el aporte sirve para entrenar segmentación. No alcanza con "tiene
-        # contornos": un aporte de puros fondos (imágenes marcadas como ejemplo
-        # negativo con herramientas/marcar_fondos.py) no tiene ninguno y sin
+        # contornos": un aporte de puros fondos (un .json sin formas por imagen,
+        # o `fondos_implicitos` al subirlo) no tiene ninguno y sin
         # embargo sirve igual para las dos tareas, porque lo que aporta es
         # justamente que no hay nada que encontrar. Lo que no sirve es un aporte
         # con cajas pero sin contornos: entrenar segmentación con eso le

@@ -44,8 +44,14 @@ function avisosDe(d: Dataset): string[] {
   // enseña que ahí no hay maleza. Por eso el aviso dice qué hacer.
   if (d.imagenes_sin_anotar) {
     avisos.push(
-      `${plural(d.imagenes_sin_anotar, "imagen")} sin .json se ignoraron: si no tienen maleza, ` +
-        "conviene declararlas como fondo con marcar_fondos.py y volver a subir el aporte"
+      `${plural(d.imagenes_sin_anotar, "imagen")} sin .json se ignoraron: si ya revisaste que no ` +
+        'tienen maleza, volvé a subir el aporte con "las imágenes sin .json son fondo"'
+    );
+  }
+  if (d.fondos_declarados) {
+    avisos.push(
+      `${plural(d.fondos_declarados, "imagen")} sin .json se declararon fondo al subir: si alguna ` +
+        "tenía maleza, le está enseñando al modelo que no la tiene"
     );
   }
   if (d.formas_ignoradas) avisos.push(`${plural(d.formas_ignoradas, "forma")} sin área (puntos o líneas) se ignoraron`);
@@ -90,6 +96,7 @@ export default function Aportes() {
 
   const [archivo, setArchivo] = useState<File | null>(null);
   const [nombre, setNombre] = useState("");
+  const [fondosImplicitos, setFondosImplicitos] = useState(false);
   const [arrastrando, setArrastrando] = useState(false);
   const [fase, setFase] = useState<Fase>("elegir");
   const [progreso, setProgreso] = useState(0);
@@ -146,10 +153,13 @@ export default function Aportes() {
     setResultado(null);
     setErrorSubida(null);
     try {
-      const dataset = await subirDataset(archivo, nombre, setProgreso, () => setFase("procesando"));
+      const dataset = await subirDataset(archivo, nombre, fondosImplicitos, setProgreso, () =>
+        setFase("procesando")
+      );
       setResultado(dataset);
       setArchivo(null);
       setNombre("");
+      setFondosImplicitos(false);
       if (selectorArchivo.current) selectorArchivo.current.value = "";
       await recargar();
     } catch (e) {
@@ -274,6 +284,22 @@ export default function Aportes() {
               onValueChange={setNombre}
               isDisabled={ocupado}
             />
+
+            <Checkbox
+              isSelected={fondosImplicitos}
+              onValueChange={setFondosImplicitos}
+              isDisabled={ocupado}
+              size="sm"
+            >
+              <span className="text-sm">
+                Las imágenes sin .json son fondo
+                <span className={`block text-xs ${claseTextoSuave}`}>
+                  Entran como ejemplo negativo en vez de ignorarse. Marcalo solo si ya revisaste que no tienen
+                  maleza: declarar fondo una tesela a medio etiquetar le enseña al modelo que esa maleza no
+                  existe.
+                </span>
+              </span>
+            </Checkbox>
 
             {fase === "subiendo" && <Progress aria-label="Subiendo" label="Subiendo…" value={progreso} showValueLabel color="primary" />}
             {fase === "procesando" && (

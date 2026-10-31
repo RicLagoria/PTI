@@ -15,6 +15,8 @@ export interface Dataset {
   anotaciones_por_clase: Record<string, number>;
   imagenes_sin_objetos: number;
   imagenes_sin_anotar: number;
+  /** Imágenes sin .json que se declararon fondo al subir, en vez de ignorarse. */
+  fondos_declarados?: number;
   formas_ignoradas: number;
   cajas_descartadas: number;
   /** Contornos (polígonos) del aporte: con ellos se entrena segmentación. */
@@ -363,6 +365,8 @@ export function cantidadValidacion(total: number, fraccion: number): number {
 export function subirDataset(
   archivo: File,
   nombre: string,
+  /** Declarar fondo las imágenes sin .json, en vez de ignorarlas. */
+  fondosImplicitos: boolean,
   onProgreso: (pct: number) => void,
   onSubido: () => void
 ): Promise<Dataset> {
@@ -390,6 +394,7 @@ export function subirDataset(
     const formulario = new FormData();
     formulario.append("archivo", archivo);
     if (nombre.trim()) formulario.append("nombre", nombre.trim());
+    if (fondosImplicitos) formulario.append("fondos_implicitos", "true");
     xhr.send(formulario);
   });
 }

@@ -139,14 +139,23 @@ si algo no sirve, con el detalle de qué corregir:
 - **Fondos:** un `.json` sin formas entra como ejemplo negativo. Una imagen sin
   `.json` se ignora (puede ser un descuido) y se informa en el resultado como
   `imagenes_sin_anotar`. La diferencia importa: un fondo declarado le enseña al
-  modelo que ahí no hay nada, y una imagen ignorada no le enseña nada. Para
-  pasar de lo segundo a lo primero está `herramientas/marcar_fondos.py`, que le
-  escribe el `.json` vacío a cada imagen que se le indique (labelme no guarda
-  una imagen en la que no se dibujó nada), sin tocar las que ya tienen uno:
+  modelo que ahí no hay nada, y una imagen ignorada no le enseña nada.
+
+  Para pasar de lo segundo a lo primero está **`fondos_implicitos`**, un campo
+  del formulario de subida (en la web, "las imágenes sin .json son fondo"): con
+  él, cada imagen sin `.json` entra como ejemplo negativo, y el resultado dice
+  cuántas fueron en `fondos_declarados`. Hace falta porque labelme no guarda una
+  imagen en la que no se dibujó nada, así que las teselas limpias de un lote no
+  dejan archivo.
+
+  Viene **apagado** y se pide por aporte a propósito: declarar fondo una imagen
+  que nadie revisó le enseña al modelo que la maleza que hay ahí no es maleza, y
+  eso no se nota hasta que baja la recall. Si un lote está a medio etiquetar,
+  conviene subir en un ZIP aparte solo las teselas ya revisadas.
 
   ```bash
-  cd <carpeta del lote>
-  python <repo>/project/servicios/ia-entrenamiento/herramientas/marcar_fondos.py *.jpg
+  curl -X POST http://localhost:8002/datasets \
+       -F archivo=@lote.zip -F nombre="Lote norte" -F fondos_implicitos=true
   ```
 
   Un aporte hecho **solo** de fondos es válido y sirve para las dos tareas: no

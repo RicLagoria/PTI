@@ -110,7 +110,12 @@ def _nombre_unico(base: str, usados: set) -> str:
     return nombre
 
 
-def guardar_dataset_zip(archivo_zip: BinaryIO, nombre: str, archivo_original: str) -> Dict:
+def guardar_dataset_zip(
+    archivo_zip: BinaryIO,
+    nombre: str,
+    archivo_original: str,
+    fondos_implicitos: bool = False,
+) -> Dict:
     """
     Valida un ZIP de labelme, lo convierte a YOLO con los índices canónicos y
     lo guarda como DATASETS_DIR/<id>/{imagenes,etiquetas,contornos}/ + meta.json.
@@ -145,7 +150,7 @@ def guardar_dataset_zip(archivo_zip: BinaryIO, nombre: str, archivo_original: st
         except zipfile.BadZipFile:
             raise ErrorAporte("El archivo no es un ZIP válido.")
 
-        anotaciones, resumen = convertir_aporte(extraido, clases)
+        anotaciones, resumen = convertir_aporte(extraido, clases, fondos_implicitos)
 
         carpeta_imagenes = temporal / "imagenes"
         carpeta_etiquetas = temporal / "etiquetas"
