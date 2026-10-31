@@ -163,10 +163,12 @@ Un entrenamiento tiene dos ejes y **se piden distinto a propósito**:
 **El encuadre también es un parámetro del dataset, no solo del análisis.** Una
 tesela de 640 px son unos 21 m a 3,3 cm/px, así que una mancha más grande no
 entra y el modelo aprende a cortarla: el 24,9 % de las manchas etiquetadas toca
-el borde de su tesela. `herramientas/ventanas_multiescala.py` arma aportes de
-escala gruesa pegando N×N teselas vecinas ya etiquetadas y reduciéndolas a 640,
-sin reetiquetar nada, y une las manchas que quedaron partidas por las costuras;
-ver el README del servicio, incluida la advertencia sobre comparar métricas.
+el borde de su tesela. `POST /datasets/{id}/ventanas` (`nucleo/ventanas.py`)
+deriva aportes de escala gruesa pegando N×N teselas vecinas del aporte **ya
+subido** y reduciéndolas a 640, sin reetiquetar ni volver a subir nada: las
+teselas se guardan con el nombre de su `.json`, así que `tile_x<col>_y<fila>`
+sobrevive y con él la vecindad. Une las manchas partidas por las costuras. Ver
+el README del servicio, incluida la advertencia sobre comparar métricas.
 
 De cada aporte se guardan los **dos** formatos de etiqueta al subirlo: `etiquetas/` las cajas y `contornos/` los polígonos (`conversion_labelme.py`). Así el mismo aporte sirve para las dos tareas y recién al encolar se elige la carpeta (`ensamblado.CARPETA_ETIQUETAS_POR_TAREA`). Los aportes subidos antes de que se guardaran los contornos solo sirven para `detect`; la API y el ensamblado los rechazan con un mensaje que explica que hay que volver a subir el ZIP, porque los polígonos siguen estando en sus JSON de labelme.
 

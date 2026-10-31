@@ -25,6 +25,23 @@ export interface Dataset {
   contornos_descartados?: number;
   /** Falta en los aportes subidos antes de que se guardaran los contornos. */
   tiene_segmentacion?: boolean;
+  /** Id del aporte del que se derivó pegando teselas vecinas; falta si se subió. */
+  derivado_de?: string;
+  /** Cuántas teselas por lado tiene cada ventana. Solo en un aporte derivado. */
+  escala?: number;
+  lado_ventana_px?: number;
+  /** Manchas que estaban partidas por una costura y se unieron al pegar. */
+  formas_unidas?: number;
+}
+
+/** Respuesta de GET /datasets/{id}/ventanas: qué escalas gruesas dan algo. */
+export interface VentanasDisponibles {
+  apto: boolean;
+  /** Por qué no se puede derivar de este aporte; null cuando se puede. */
+  motivo: string | null;
+  paso_px?: number;
+  /** Ventanas completas por escala, indexadas por el número de escala. */
+  escalas: Record<string, number>;
 }
 
 /** Qué entrena un modelo: cajas (detect) o contornos (segment). */
@@ -290,6 +307,17 @@ export const listarDatasets = () => pedir<Dataset[]>("/datasets", "No se pudo ob
 
 export const eliminarDataset = (id: string) =>
   pedir<void>(`/datasets/${id}`, "No se pudo eliminar el aporte.", { method: "DELETE" });
+
+export const ventanasDisponibles = (id: string) =>
+  pedir<VentanasDisponibles>(`/datasets/${id}/ventanas`, "No se pudo saber qué escalas se pueden derivar.");
+
+/** Deriva un aporte de escala gruesa por cada escala pedida. Devuelve los nuevos. */
+export const generarVentanas = (id: string, escalas: number[]) =>
+  pedir<Dataset[]>(`/datasets/${id}/ventanas`, "No se pudieron generar las escalas gruesas.", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ escalas }),
+  });
 
 export const listarTrabajos = () => pedir<Trabajo[]>("/entrenamientos", "No se pudo obtener la lista de entrenamientos.");
 

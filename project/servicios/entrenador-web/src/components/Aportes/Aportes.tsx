@@ -7,6 +7,8 @@ import {
   Button,
   Card,
   CardBody,
+  Checkbox,
+  CheckboxGroup,
   Chip,
   Input,
   Modal,
@@ -17,14 +19,17 @@ import {
   Progress,
   Spinner,
 } from "@heroui/react";
-import { CheckCircle2, FileArchive, Info, Tags, Trash2, Upload } from "lucide-react";
+import { CheckCircle2, FileArchive, Info, Layers, Tags, Trash2, Upload } from "lucide-react";
 
 import {
   eliminarDataset,
+  generarVentanas,
   listarClases,
   listarDatasets,
   subirDataset,
+  ventanasDisponibles,
   type Dataset,
+  type VentanasDisponibles,
 } from "../../services/EntrenamientoService";
 import { fecha, numero, plural, tamanoArchivo } from "../../utils/formato";
 import PanelError from "../comunes/PanelError";
@@ -96,6 +101,13 @@ export default function Aportes() {
   const [borrando, setBorrando] = useState(false);
   const [errorBorrado, setErrorBorrado] = useState<unknown>(null);
 
+  const [aDerivar, setADerivar] = useState<Dataset | null>(null);
+  const [disponibles, setDisponibles] = useState<VentanasDisponibles | null>(null);
+  const [escalas, setEscalas] = useState<string[]>([]);
+  const [derivando, setDerivando] = useState(false);
+  const [errorDerivar, setErrorDerivar] = useState<unknown>(null);
+  const [derivados, setDerivados] = useState<Dataset[] | null>(null);
+
   const recargar = useCallback(async () => {
     try {
       const [lista, canonicas] = await Promise.all([listarDatasets(), listarClases()]);
@@ -160,6 +172,43 @@ export default function Aportes() {
       setErrorBorrado(e);
     } finally {
       setBorrando(false);
+    }
+  };
+
+  const abrirDerivar = async (d: Dataset) => {
+    setADerivar(d);
+    setDisponibles(null);
+    setEscalas([]);
+    setDerivados(null);
+    setErrorDerivar(null);
+    try {
+      const info = await ventanasDisponibles(d.id);
+      setDisponibles(info);
+      // Preseleccionada 4×, que sobre El Azul son unos 89 m: ahí entra entera
+      // el 90% de las manchas y el recorte baja de 24,9% a 17,5%. Más lejos se
+      // gana poco (las manchas que siguen cortadas son bandas sin tamaño
+      // propio, que se arreglan fusionando en el análisis) y se pierden las
+      // chicas. Si no da ninguna ventana, la mayor que dé alguna.
+      const utiles = Object.entries(info.escalas).filter(([, n]) => n > 0);
+      const preferida = utiles.find(([escala]) => escala === "4") ?? utiles[utiles.length - 1];
+      if (preferida) setEscalas([preferida[0]]);
+    } catch (e) {
+      setErrorDerivar(e);
+    }
+  };
+
+  const confirmarDerivar = async () => {
+    if (!aDerivar || !escalas.length) return;
+    setDerivando(true);
+    setErrorDerivar(null);
+    try {
+      const nuevos = await generarVentanas(aDerivar.id, escalas.map(Number));
+      setDerivados(nuevos);
+      await recargar();
+    } catch (e) {
+      setErrorDerivar(e);
+    } finally {
+      setDerivando(false);
     }
   };
 
@@ -301,24 +350,47 @@ export default function Aportes() {
                   <li key={d.id} className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
                     <div className="flex items-start justify-between gap-4">
                       <div className="min-w-0">
-                        <p className="truncate font-semibold">{d.nombre}</p>
+                        <p className="flex items-center gap-2 truncate font-semibold">
+                          {d.nombre}
+                          {d.escala && (
+                            <Chip size="sm" variant="flat" color="secondary">
+                              {d.escala}× · {d.lado_ventana_px} px
+                            </Chip>
+                          )}
+                        </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">
                           {fecha(d.fecha_creacion)} · {d.archivo_original} · <span className="font-mono">{d.id}</span>
                         </p>
                       </div>
-                      <Button
-                        isIconOnly
-                        size="sm"
-                        variant="light"
-                        color="danger"
-                        aria-label={`Eliminar ${d.nombre}`}
-                        onPress={() => {
-                          setErrorBorrado(null);
-                          setABorrar(d);
-                        }}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex shrink-0 gap-1">
+                        {/* Un aporte derivado no se vuelve a derivar: sus imágenes ya
+                            son ventanas y no llevan la posición de una tesela */}
+                        {!d.derivado_de && (
+                          <Button
+                            isIconOnly
+                            size="sm"
+                            variant="light"
+                            aria-label={`Generar escalas gruesas de ${d.nombre}`}
+                            title="Generar escalas gruesas"
+                            onPress={() => abrirDerivar(d)}
+                          >
+                            <Layers className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button
+                          isIconOnly
+                          size="sm"
+                          variant="light"
+                          color="danger"
+                          aria-label={`Eliminar ${d.nombre}`}
+                          onPress={() => {
+                            setErrorBorrado(null);
+                            setABorrar(d);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="mt-3 grid gap-4 sm:grid-cols-[auto_1fr]">
@@ -350,6 +422,83 @@ export default function Aportes() {
           )}
         </CardBody>
       </Card>
+
+      <Modal isOpen={aDerivar !== null} onClose={() => !derivando && setADerivar(null)} size="lg">
+        <ModalContent>
+          <ModalHeader>Generar escalas gruesas</ModalHeader>
+          <ModalBody className="space-y-4">
+            <p className={`text-sm ${claseTextoSuave}`}>
+              Pega teselas vecinas de <span className="font-semibold">{aDerivar?.nombre}</span> en una sola imagen y la
+              reduce a 640 px, así el modelo ve más campo de una vez y una mancha más grande que una tesela deja de
+              aparecer cortada. Las etiquetas se recomponen solas: no hay que etiquetar nada de nuevo.
+            </p>
+
+            {derivados ? (
+              <div className="space-y-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100">
+                {derivados.map((d) => (
+                  <p key={d.id} className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    {d.escala}×: {plural(d.total_imagenes, "ventana")} con{" "}
+                    {plural(d.total_anotaciones, "contorno")}
+                    {d.formas_unidas
+                      ? `, y se unieron ${plural(d.formas_unidas, "mancha partida", "manchas partidas")}`
+                      : ""}
+                    .
+                  </p>
+                ))}
+                <p className="text-xs">Ya están en la lista y se pueden elegir en un entrenamiento.</p>
+              </div>
+            ) : disponibles === null && errorDerivar == null ? (
+              <Spinner label="Viendo qué escalas dan ventanas completas…" />
+            ) : disponibles && !disponibles.apto ? (
+              <p className="text-sm text-amber-700 dark:text-amber-300">{disponibles.motivo}</p>
+            ) : disponibles ? (
+              <CheckboxGroup
+                label="Qué escalas generar"
+                description="Cada una queda como un aporte aparte, para que todas tengan imágenes en validación."
+                value={escalas}
+                onValueChange={setEscalas}
+                isDisabled={derivando}
+              >
+                {Object.entries(disponibles.escalas).map(([escala, cantidad]) => {
+                  const n = Number(escala);
+                  return (
+                    <Checkbox key={escala} value={escala} isDisabled={cantidad === 0}>
+                      <span className="text-sm">
+                        <span className="font-semibold">{escala}×</span> · {n * n} teselas por ventana ·{" "}
+                        {n * (disponibles.paso_px ?? 0)} px
+                        <span className={cantidad === 0 ? "text-amber-600 dark:text-amber-400" : claseTextoSuave}>
+                          {cantidad === 0
+                            ? " · no hay ninguna ventana completa"
+                            : ` · ${plural(cantidad, "ventana")}`}
+                        </span>
+                      </span>
+                    </Checkbox>
+                  );
+                })}
+              </CheckboxGroup>
+            ) : null}
+
+            {errorDerivar != null && <PanelError error={errorDerivar} />}
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={() => setADerivar(null)} isDisabled={derivando}>
+              {derivados ? "Cerrar" : "Cancelar"}
+            </Button>
+            {!derivados && (
+              <Button
+                color="primary"
+                onPress={confirmarDerivar}
+                isLoading={derivando}
+                isDisabled={!escalas.length || derivando}
+                className="dark:bg-blue-700"
+              >
+                Generar
+              </Button>
+            )}
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
 
       <Modal isOpen={aBorrar !== null} onClose={() => !borrando && setABorrar(null)}>
         <ModalContent>

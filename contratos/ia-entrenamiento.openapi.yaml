@@ -196,6 +196,91 @@ paths:
         '204':
           description: Dataset eliminado
 
+  /datasets/{id}/ventanas:
+    get:
+      summary: Escalas gruesas que se pueden derivar de un aporte
+      description: >
+        Cuántas ventanas completas daría cada escala, sin generarlas. Una ventana
+        de escala N son N×N teselas vecinas pegadas, y es "completa" solo si
+        están las N² y todas etiquetadas.
+      operationId: getVentanasDataset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Escalas y cuántas ventanas daría cada una
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [apto, escalas]
+                properties:
+                  apto:
+                    type: boolean
+                    description: Si del aporte se puede derivar escala gruesa.
+                  motivo:
+                    type: string
+                    nullable: true
+                    description: Por qué no se puede; null cuando sí.
+                  paso_px:
+                    type: integer
+                    description: Lado de cada tesela, en píxeles.
+                  escalas:
+                    type: object
+                    description: Ventanas completas por escala, con la escala como clave.
+                    additionalProperties:
+                      type: integer
+        '404':
+          description: Dataset no encontrado
+    post:
+      summary: Derivar aportes de escala gruesa
+      description: >
+        Pega N×N teselas vecinas del aporte, reduce cada ventana a 640 px y
+        recompone las etiquetas. No hay que volver a subir nada: las teselas ya
+        están guardadas con su posición en el nombre. Las manchas partidas por
+        una costura interna se unen. Cada escala queda como un aporte nuevo.
+      operationId: postVentanasDataset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [escalas]
+              properties:
+                escalas:
+                  type: array
+                  minItems: 1
+                  maxItems: 4
+                  items:
+                    type: integer
+                    minimum: 2
+                    maximum: 8
+                  description: Teselas por lado de cada ventana.
+      responses:
+        '201':
+          description: Aportes derivados, uno por escala
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+        '400':
+          description: El aporte no sirve para derivar, o la escala no da ninguna ventana completa
+        '404':
+          description: Dataset no encontrado
+
   /entrenamientos:
     get:
       summary: Lista de trabajos de entrenamiento

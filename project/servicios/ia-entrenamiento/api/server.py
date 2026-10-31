@@ -21,6 +21,7 @@ import dispositivos
 import ensamblado
 import registro
 import trabajos
+import ventanas
 from conversion_labelme import ErrorAporte
 
 MAX_DATASET_MB = int(os.environ.get("MAX_DATASET_MB", "2048"))
@@ -73,6 +74,12 @@ class SolicitudEntrenamiento(BaseModel):
     # 0 lo desactiva. Lo implementa Ultralytics (`patience`), que mira el fitness
     # de validación y no la pérdida, y deja best.pt de la mejor época igual.
     paciencia: int = Field(PACIENCIA_POR_DEFECTO, ge=0, le=300)
+
+
+class SolicitudVentanas(BaseModel):
+    # Cuántas teselas por lado tiene cada ventana. Una ventana de 4 cubre 16
+    # teselas, unos 89 m con el ortomosaico de El Azul; ver nucleo/ventanas.py.
+    escalas: List[int] = Field(..., min_length=1, max_length=4)
 
 
 @app.get("/salud")
@@ -140,6 +147,32 @@ def eliminar_dataset(id: str):
     if not datasets.eliminar_dataset(id):
         raise HTTPException(status_code=404, detail="Dataset no encontrado.")
     return Response(status_code=204)
+
+
+@app.get("/datasets/{id}/ventanas")
+def ventanas_disponibles(id: str):
+    """Cuántas ventanas completas daría cada escala, para ofrecer solo las que sirven."""
+    if datasets.carpeta_de(id) is None:
+        raise HTTPException(status_code=404, detail="Dataset no encontrado.")
+    return ventanas.escalas_disponibles(id)
+
+
+# Sin async, igual que la subida: pega y reescribe una imagen por ventana, y en
+# un endpoint async bloquearía el event loop mientras dura.
+@app.post("/datasets/{id}/ventanas", status_code=201)
+def generar_ventanas(id: str, solicitud: SolicitudVentanas):
+    """
+    Deriva un aporte de escala gruesa por cada escala pedida.
+
+    Las teselas ya están en el servidor con su posición en el nombre, así que no
+    hay que volver a subir nada: se pegan N×N vecinas y se reduce el resultado.
+    """
+    if datasets.carpeta_de(id) is None:
+        raise HTTPException(status_code=404, detail="Dataset no encontrado.")
+    try:
+        return ventanas.generar_desde_dataset(id, solicitud.escalas)
+    except ErrorAporte as e:
+        raise HTTPException(status_code=400, detail=e.detalle)
 
 
 @app.get("/entrenamientos")
