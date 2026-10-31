@@ -93,6 +93,31 @@ con `DataLoader worker (pid N) is killed by signal: Bus error`. Por eso
 `compose.ia.yml` le da `shm_size: 2gb` al worker; si se sube `LOTE_GPU` bastante,
 hay que subirlo también.
 
+## Hasta cuándo entrena: épocas y paciencia
+
+`epocas` es el tope y `paciencia` corta antes (early stopping): si el modelo no
+mejora en esa cantidad de épocas seguidas, la corrida termina ahí. `0` lo
+desactiva. Lo implementa Ultralytics, y hay tres cosas que conviene saber:
+
+- **Mira el fitness de validación, no la pérdida.** El fitness es el mAP50-95
+  (en segmentación, el de la máscara más el de la caja). Es mejor criterio que la
+  pérdida de YOLO, que mezcla cuatro términos (caja, clase, distribución de
+  bordes, máscara) y puede bajar mientras el modelo detecta peor.
+- **No cambia qué modelo se publica.** La versión sale siempre del `best.pt` de
+  la época de mejor fitness, que YOLO guarda entrene 30 épocas más o no. Cortar
+  solo ahorra tiempo de cómputo.
+- **Cortar saltea el final de la receta.** En las últimas 10 épocas Ultralytics
+  apaga el mosaico (`close_mosaic`) y las métricas suelen dar un salto; si el
+  early stopping corta antes, ese salto no llega a pasar. Por eso el valor por
+  defecto es 30 y no 10 como en los ejemplos típicos de Keras: el mAP sube a
+  saltos y se amesetea, así que una paciencia corta corta de más. El default de
+  Ultralytics, 100, es el otro extremo: con corridas de 150 épocas no corta
+  nunca.
+
+Las épocas que realmente corrió quedan en `metricas.epocas_entrenadas`, y
+entrenador-web lo avisa en la tarjeta del trabajo: si no, "150 épocas" en el
+pedido y 94 en la curva no cierran.
+
 ## Cómo subir un aporte
 
 Un ZIP con las imágenes y los `.json` que guarda labelme, en cualquier

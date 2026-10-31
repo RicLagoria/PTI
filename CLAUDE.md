@@ -153,6 +153,13 @@ Un entrenamiento tiene dos ejes y **se piden distinto a propósito**:
 - **Qué entrena no es un parámetro: viene con `pesos_base`.** `yolov8n-seg.pt` entrena contornos (`tarea: segment`), `yolov8n.pt` cajas (`detect`), y una versión del registro sigue con su misma tarea, anotada en su `meta.json`. El `.pt` trae la cabeza entrenada para una cosa o la otra y no se puede seguir entrenando una con las etiquetas del otro formato; si la tarea fuera un campo aparte podría contradecir a los pesos. La lista de pesos permitidos es un allowlist (`registro.TAREA_DE_PESOS_OFICIALES`): YOLO abre los `.pt` con pickle.
 - **Dónde entrena sí es un parámetro: `dispositivo`,** `cpu` (por defecto) o `gpu`. Para GPU hacen falta tres cosas (la placa, un torch con CUDA, el acceso del contenedor al dispositivo) y `nucleo/dispositivos.py` las distingue para poder decir cuál falta; `GET /dispositivos` lo expone y `entrenador-web` habilita o no la opción. Si se pide GPU y el worker no la tiene, el trabajo queda **fallido en el momento**, antes de copiar el dataset: entrenar en CPU sin avisar serían horas de cómputo que nadie pidió. El dispositivo también fija el lote (`LOTE_CPU`=2, `LOTE_GPU`=16).
 
+- **Hasta cuándo entrena son dos parámetros:** `epocas` es el tope y
+  `paciencia` corta antes si el fitness de validación (mAP, no la pérdida) no
+  mejora en esa cantidad de épocas seguidas; 0 la desactiva, 30 por defecto. No
+  cambia qué modelo se publica, porque la versión sale del `best.pt` de la mejor
+  época: solo ahorra cómputo. Cortar antes también saltea las últimas 10 épocas,
+  en las que Ultralytics apaga el mosaico y las métricas dan un salto.
+
 De cada aporte se guardan los **dos** formatos de etiqueta al subirlo: `etiquetas/` las cajas y `contornos/` los polígonos (`conversion_labelme.py`). Así el mismo aporte sirve para las dos tareas y recién al encolar se elige la carpeta (`ensamblado.CARPETA_ETIQUETAS_POR_TAREA`). Los aportes subidos antes de que se guardaran los contornos solo sirven para `detect`; la API y el ensamblado los rechazan con un mensaje que explica que hay que volver a subir el ZIP, porque los polígonos siguen estando en sus JSON de labelme.
 
 ### La semilla

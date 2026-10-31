@@ -14,6 +14,8 @@ info:
       subirlo, así que un mismo aporte sirve para las dos tareas.
     - **Dónde entrena** (`dispositivo`): `cpu` o `gpu`. Se pide explícitamente; qué hay
       disponible lo dice `GET /dispositivos`.
+    - **Hasta cuándo** (`epocas` y `paciencia`): `epocas` es el tope y `paciencia` corta
+      antes si el mAP de validación deja de mejorar.
   version: 1.1.0
 paths:
   /clases:
@@ -228,6 +230,19 @@ paths:
                   default: 50
                   minimum: 1
                   maximum: 300
+                  description: >
+                    Tope de épocas. Con `paciencia` distinta de 0 puede cortar antes.
+                paciencia:
+                  type: integer
+                  default: 30
+                  minimum: 0
+                  maximum: 300
+                  description: >
+                    Early stopping: épocas seguidas sin mejorar después de las cuales se
+                    corta, `0` lo desactiva. Mira el fitness de validación (mAP), no la
+                    pérdida. No cambia qué modelo se publica: la versión siempre sale del
+                    best.pt de la mejor época, así que cortar solo ahorra tiempo. Las épocas
+                    que realmente corrió quedan en `metricas.epocas_entrenadas`.
                 imgsz:
                   type: integer
                   default: 640

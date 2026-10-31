@@ -81,6 +81,10 @@ export default function TarjetaTrabajo({
 }) {
   const estado = ESTADOS[trabajo.estado];
   const m = trabajo.metricas ?? {};
+  // Corrió menos épocas de las pedidas: cortó el early stopping. Sin decirlo,
+  // "150 épocas" en la línea de arriba y 94 épocas en la curva no cierran
+  const cortoAntes =
+    !!trabajo.paciencia && m.epocas_entrenadas !== undefined && m.epocas_entrenadas < trabajo.epocas;
   const activo = trabajo.estado === "pendiente" || trabajo.estado === "ejecutando";
 
   const [confirmando, setConfirmando] = useState(false);
@@ -111,6 +115,7 @@ export default function TarjetaTrabajo({
             {fecha(trabajo.fecha_creacion)} · {trabajo.epocas} épocas · imgsz {trabajo.imgsz} · desde {trabajo.pesos_base}
             {trabajo.tarea && ` · ${ETIQUETA_TAREA[trabajo.tarea].toLowerCase()}`}
             {trabajo.dispositivo && ` · en ${trabajo.dispositivo.toUpperCase()}`}
+            {!!trabajo.paciencia && ` · paciencia ${trabajo.paciencia}`}
             {trabajo.fraccion_validacion !== undefined && ` · valida ${Math.round(trabajo.fraccion_validacion * 100)} %`}
             {trabajo.intentos !== undefined && trabajo.intentos > 1 && ` · intento ${trabajo.intentos} (el worker anterior dejó de responder)`}
             {trabajo.worker && trabajo.worker !== "cancelado" && (
@@ -186,6 +191,13 @@ export default function TarjetaTrabajo({
           <p>
             Publicó <span className="font-mono font-semibold">{trabajo.version_generada}</span> · mAP50-95{" "}
             <span className="font-semibold">{porcentaje(m.map50_95)}</span> (mejor época {m.epoca_mejor ?? "—"})
+            {cortoAntes && (
+              <>
+                {" "}
+                · cortó en la época {m.epocas_entrenadas} de {trabajo.epocas}, porque el mAP no mejoró en{" "}
+                {plural(trabajo.paciencia ?? 0, "época")}
+              </>
+            )}
           </p>
           <Link
             to={`/modelos/${encodeURIComponent(trabajo.version_generada ?? "")}`}

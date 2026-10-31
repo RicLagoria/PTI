@@ -51,6 +51,14 @@ app.add_middleware(
 )
 
 
+# Épocas sin mejorar antes de cortar, si no se pide otra cosa. Ultralytics usa
+# 100, que con corridas de 150 épocas no corta nunca; 30 alcanza para absorber
+# las mesetas del mAP, que sube a saltos, sin esperar de más. Ojo que cortar
+# antes del final también saltea las últimas 10 épocas, en las que Ultralytics
+# apaga el mosaico y las métricas suelen dar un salto.
+PACIENCIA_POR_DEFECTO = 30
+
+
 class SolicitudEntrenamiento(BaseModel):
     datasets: List[str] = Field(..., min_length=1)
     epocas: int = Field(50, ge=1, le=300)
@@ -61,6 +69,10 @@ class SolicitudEntrenamiento(BaseModel):
     # Parte de cada aporte que se separa para validar (y para la evaluación final)
     fraccion_validacion: float = Field(0.25, ge=0.1, le=0.5)
     dispositivo: str = Field(dispositivos.DISPOSITIVO_POR_DEFECTO, pattern="^(cpu|gpu)$")
+    # Early stopping: épocas seguidas sin mejorar después de las cuales se corta.
+    # 0 lo desactiva. Lo implementa Ultralytics (`patience`), que mira el fitness
+    # de validación y no la pérdida, y deja best.pt de la mejor época igual.
+    paciencia: int = Field(PACIENCIA_POR_DEFECTO, ge=0, le=300)
 
 
 @app.get("/salud")
@@ -192,6 +204,7 @@ def crear_entrenamiento(solicitud: SolicitudEntrenamiento):
         fraccion_validacion=solicitud.fraccion_validacion,
         tarea=tarea,
         dispositivo=solicitud.dispositivo,
+        paciencia=solicitud.paciencia,
     )
     return trabajo
 

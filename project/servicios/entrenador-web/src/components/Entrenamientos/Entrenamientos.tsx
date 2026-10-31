@@ -33,6 +33,9 @@ import TarjetaTrabajo from "./TarjetaTrabajo";
 const TAMANOS_IMAGEN = [320, 416, 512, 640, 800, 960, 1280];
 // La API acepta entre 10% y 50% para validación
 const FRACCIONES_VALIDACION = [0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5];
+// Épocas sin mejorar antes de cortar. Mismo valor que usa la API si no se manda
+// nada; Ultralytics trae 100, que con corridas de 150 épocas no corta nunca
+const PACIENCIA_POR_DEFECTO = 30;
 const ESPERA_TRAS_CORTE_MS = 5000;
 
 /** Clave elegida en un Select de selección simple (vacía si se deseleccionó). */
@@ -49,6 +52,7 @@ export default function Entrenamientos() {
 
   const [elegidos, setElegidos] = useState<string[]>([]);
   const [epocas, setEpocas] = useState("50");
+  const [paciencia, setPaciencia] = useState(String(PACIENCIA_POR_DEFECTO));
   const [imgsz, setImgsz] = useState("640");
   const [pesosBase, setPesosBase] = useState(PESOS_BASE_OFICIALES[0]);
   const [fraccion, setFraccion] = useState("0.25");
@@ -102,6 +106,8 @@ export default function Entrenamientos() {
   const imagenesValidacion = aportesElegidos.reduce((s, d) => s + cantidadValidacion(d.total_imagenes, Number(fraccion)), 0);
   const epocasNumero = Number(epocas);
   const epocasValidas = Number.isInteger(epocasNumero) && epocasNumero >= 1 && epocasNumero <= 300;
+  const pacienciaNumero = Number(paciencia);
+  const pacienciaValida = Number.isInteger(pacienciaNumero) && pacienciaNumero >= 0 && pacienciaNumero <= 300;
   // Misma regla que la API: al menos una imagen de cada lado del split
   const splitValido = imagenesValidacion > 0 && imagenesElegidas - imagenesValidacion > 0;
 
@@ -113,7 +119,7 @@ export default function Entrenamientos() {
   const gpuDisponible = dispositivos?.gpu_disponible ?? false;
 
   const puedeEnviar =
-    elegidos.length > 0 && splitValido && epocasValidas && sinContornos.length === 0 && !enviando;
+    elegidos.length > 0 && splitValido && epocasValidas && pacienciaValida && sinContornos.length === 0 && !enviando;
 
   // Si se deja elegida la GPU y deja de estar disponible (se recargó la página
   // con el worker en CPU), el trabajo fallaría en el worker: vuelve a CPU
@@ -143,6 +149,7 @@ export default function Entrenamientos() {
         pesos_base: pesosBase,
         fraccion_validacion: Number(fraccion),
         dispositivo,
+        paciencia: pacienciaNumero,
       });
       setTrabajos((lista) => [trabajo, ...lista]);
       setGeneracion((g) => g + 1);
@@ -209,19 +216,36 @@ export default function Entrenamientos() {
               onValueChange={setEpocas}
               isInvalid={!epocasValidas}
               errorMessage="Entre 1 y 300"
+              description="Tope: con paciencia puede cortar antes."
             />
-            <Select
-              label="Tamaño de imagen"
-              selectedKeys={[imgsz]}
-              disallowEmptySelection
-              onSelectionChange={(claves) => claveElegida(claves) && setImgsz(claveElegida(claves))}
-              description="640 es el que usa el análisis"
-            >
-              {TAMANOS_IMAGEN.map((t) => (
-                <SelectItem key={String(t)}>{`${t} px`}</SelectItem>
-              ))}
-            </Select>
+            <Input
+              type="number"
+              label="Paciencia"
+              min={0}
+              max={300}
+              value={paciencia}
+              onValueChange={setPaciencia}
+              isInvalid={!pacienciaValida}
+              errorMessage="Entre 0 y 300"
+              description={
+                pacienciaNumero === 0
+                  ? "Desactivada: entrena todas las épocas aunque deje de mejorar."
+                  : `Corta si el mAP de validación no mejora en ${pacienciaNumero} épocas seguidas. Se publica igual el mejor modelo, así que solo ahorra tiempo.`
+              }
+            />
           </div>
+
+          <Select
+            label="Tamaño de imagen"
+            selectedKeys={[imgsz]}
+            disallowEmptySelection
+            onSelectionChange={(claves) => claveElegida(claves) && setImgsz(claveElegida(claves))}
+            description="640 es el que usa el análisis"
+          >
+            {TAMANOS_IMAGEN.map((t) => (
+              <SelectItem key={String(t)}>{`${t} px`}</SelectItem>
+            ))}
+          </Select>
 
           <Select
             label="Validación"

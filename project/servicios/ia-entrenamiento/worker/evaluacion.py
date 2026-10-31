@@ -7,6 +7,7 @@ números (evaluacion.json) para que entrenador-web los dibuje y los compare.
 Ojo al leer los resultados: son las mismas imágenes con las que se eligió la
 mejor época, así que la estimación es algo optimista.
 """
+import math
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
@@ -24,7 +25,15 @@ F1_MINIMO_PARA_RECOMENDAR = 0.05
 
 
 def _redondear(valor) -> Optional[float]:
-    return None if valor is None else round(float(valor), 4)
+    """
+    None si el valor no es un número usable. numpy devuelve nan cuando una
+    métrica no está definida (una clase sin ninguna predicción, por ejemplo), y
+    json.dumps no acepta NaN: la respuesta entera se cae con un 500.
+    """
+    if valor is None:
+        return None
+    numero = float(valor)
+    return round(numero, 4) if math.isfinite(numero) else None
 
 
 def _muestrear(valores, cantidad: int) -> List[float]:

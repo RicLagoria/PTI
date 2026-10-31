@@ -1,5 +1,6 @@
 import csv
 import json
+import math
 import os
 import re
 import shutil
@@ -197,6 +198,24 @@ def activar_modelo(version: str) -> bool:
     return True
 
 
+def _numero(texto) -> Optional[float]:
+    """
+    Un número del CSV de Ultralytics, o None si no se puede usar.
+
+    Ultralytics escribe `nan` en una celda cuando esa pérdida le sale indefinida
+    (pasó una vez con val/seg_loss, en la época 3 de una corrida de 150).
+    float() lo acepta sin chistar y el NaN sigue viaje hasta la respuesta de la
+    API, donde json.dumps lo rechaza: el detalle del modelo se cae con un 500 y
+    la web dice "no se pudo obtener la evaluación" por una sola época mala. Se
+    corta acá, que es por donde entra.
+    """
+    try:
+        n = float(texto)
+    except (TypeError, ValueError):
+        return None
+    return n if math.isfinite(n) else None
+
+
 def leer_metricas(results_csv: Path) -> Dict:
     """
     Métricas de la época que Ultralytics guardó como best.pt: la de mayor
@@ -215,7 +234,8 @@ def leer_metricas(results_csv: Path) -> Dict:
             return {}
 
         def valor(fila: Dict, columna: str) -> float:
-            return float(fila.get(columna) or 0)
+            # 0 y no None: estos valores se suman, se comparan y se redondean
+            return _numero(fila.get(columna)) or 0.0
 
         def fitness(fila: Dict, sufijo: str) -> float:
             return 0.1 * valor(fila, f"metrics/mAP50({sufijo})") + 0.9 * valor(fila, f"metrics/mAP50-95({sufijo})")
@@ -251,18 +271,22 @@ def leer_historial(results_csv: Path) -> List[Dict]:
         return []
 
     def valor(fila: Dict, columna: str) -> Optional[float]:
-        try:
-            return round(float(fila[columna]), 4)
-        except (KeyError, ValueError):
-            return None
+        n = _numero(fila.get(columna))
+        return None if n is None else round(n, 4)
 
     def suma(fila: Dict, prefijo: str) -> Optional[float]:
         partes = [valor(fila, f"{prefijo}/{c}_loss") for c in ("box", "cls", "dfl")]
+        # Las corridas de segmentación suman una cuarta pérdida, la de las
+        # máscaras. Que la columna no esté (una corrida de detección) no es lo
+        # mismo que que esté y no sea un número: en ese caso la suma quedaría
+        # por debajo de la real, y es mejor un hueco en la curva que un punto
+        # más bajo que los de al lado, que se leería como que el modelo mejoró.
+        columna_seg = f"{prefijo}/seg_loss"
+        if columna_seg in fila:
+            partes.append(valor(fila, columna_seg))
         if None in partes:
             return None
-        # Las corridas de segmentación suman una cuarta pérdida, la de las máscaras
-        seg = valor(fila, f"{prefijo}/seg_loss")
-        return round(sum(partes) + (seg or 0), 4)
+        return round(sum(partes), 4)
 
     return [{
         "epoca": int(valor(fila, "epoch") or 0),

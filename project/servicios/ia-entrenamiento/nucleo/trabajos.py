@@ -125,6 +125,7 @@ def encolar_trabajo(
     fraccion_validacion: float = 0.25,
     tarea: str = "segment",
     dispositivo: str = "cpu",
+    paciencia: int = 0,
 ) -> Dict:
     TRABAJOS_DIR.mkdir(parents=True, exist_ok=True)
     trabajo_id = uuid.uuid4().hex[:12]
@@ -146,6 +147,9 @@ def encolar_trabajo(
         # "cpu" o "gpu". El worker lo resuelve al arrancar y falla en el momento
         # si pidió GPU y no la tiene (ver dispositivos.resolver)
         "dispositivo": dispositivo,
+        # Épocas seguidas sin mejorar antes de cortar (early stopping). 0 lo
+        # desactiva y entrena las `epocas` completas
+        "paciencia": paciencia,
         "progreso_epocas": 0,
         "metricas": {},
         "version_generada": None,

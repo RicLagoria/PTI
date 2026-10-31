@@ -15,15 +15,20 @@ reenvía `/api/*` a `ia-entrenamiento-api`.
   etiquetas no existen o qué archivos fallaron; si lo acepta pero algo quedó
   raro, lo avisa (un aporte sin contornos solo sirve para entrenar cajas, y uno
   etiquetado con rectángulos tiene contornos que no aportan forma).
-- **Entrenamientos** (`/entrenamientos`): elegir aportes, épocas, tamaño de
-  imagen, pesos de partida y **dónde entrenar (CPU o GPU)**, y encolar. Los
-  trabajos en cola o en curso se siguen en vivo por SSE
+- **Entrenamientos** (`/entrenamientos`): elegir aportes, épocas, paciencia,
+  tamaño de imagen, pesos de partida y **dónde entrenar (CPU o GPU)**, y
+  encolar. Los trabajos en cola o en curso se siguen en vivo por SSE
   (`/entrenamientos/{id}/stream`).
 
   Los pesos de partida son los que deciden qué se entrena: `yolov8n-seg.pt`
   contornos, `yolov8n.pt` cajas. La opción GPU se habilita según
   `GET /dispositivos`, y cuando no está disponible se muestra qué falta (ver el
   README de `ia-entrenamiento`).
+
+  La paciencia es el early stopping: las épocas son un tope y la corrida corta
+  sola si el mAP no mejora en esa cantidad seguida. Cuando eso pasa, la tarjeta
+  del trabajo dice en qué época cortó, porque si no el número de épocas pedidas
+  no coincide con la curva.
 - **Modelos** (`/modelos`): versiones del registro con su tarea (contornos o
   cajas) y sus métricas, la diferencia de mAP50-95 contra la activa y el botón
   para activar otra. Activar una de cajas o una de contornos cambia lo que ve el

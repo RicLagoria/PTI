@@ -93,6 +93,8 @@ export interface Trabajo {
   tarea?: Tarea;
   /** Dónde entrena. Falta en los trabajos encolados antes de que se pudiera elegir. */
   dispositivo?: Dispositivo;
+  /** Early stopping. 0 o ausente: entrena las `epocas` completas. */
+  paciencia?: number;
   progreso_epocas: number;
   metricas: Metricas;
   version_generada: string | null;
@@ -198,6 +200,8 @@ export interface SolicitudEntrenamiento {
   pesos_base: string;
   fraccion_validacion: number;
   dispositivo: Dispositivo;
+  /** Épocas seguidas sin mejorar antes de cortar; 0 entrena las `epocas` completas */
+  paciencia: number;
 }
 
 /**
