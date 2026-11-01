@@ -20,6 +20,10 @@ volumen de datos vacío:
 - `04_escala.sql` — a qué escala corrió cada análisis. Dos corridas del mismo
   ortomosaico con el mismo modelo pueden dar resultados muy distintos solo por
   esto, así que sin la columna no se sabría cuál fue cuál.
+- `05_cascada.sql` — un análisis puede recorrer el campo varias veces, a
+  escalas distintas, así que `analisis.escala` pasa a ser `analisis.escalas` y
+  cada detección guarda de qué pasada salió. Reemplaza a la columna de 04, que
+  este archivo migra y borra.
 
 ## Aplicar una migración a una base que ya existe
 
@@ -30,6 +34,7 @@ que repetirlo no haga nada (`IF NOT EXISTS` en todo):
 ```bash
 docker compose -f despliegue/compose.dev.yml exec -T db psql -U agrovision -d agrovision < project/servicios/base-datos/init/03_segmentacion.sql
 docker compose -f despliegue/compose.dev.yml exec -T db psql -U agrovision -d agrovision < project/servicios/base-datos/init/04_escala.sql
+docker compose -f despliegue/compose.dev.yml exec -T db psql -U agrovision -d agrovision < project/servicios/base-datos/init/05_cascada.sql
 ```
 
 Sin eso, `cliente-api` falla al guardar las detecciones de un análisis, porque

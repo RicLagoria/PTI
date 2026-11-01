@@ -17,7 +17,7 @@ El sistema se está partiendo en tres planos desplegables por separado (IA, Clie
 - `cliente-api` — FastAPI con login real (JWT contra PostgreSQL). Dueño de los ortomosaicos y de todo lo geoespacial; para analizar manda lotes de teselas a `ia-inferencia` y georreferencia lo que vuelve, contornos incluidos (`georref.py`).
 - `cliente-web` — React + Leaflet: el front del MVP, con el login conectado a `cliente-api`. Dibuja un `Polygon` por detección con contorno y cae al marcador cuando no lo hay.
 - `entrenador-web` — React: subir aportes, entrenar (eligiendo contornos/cajas y CPU/GPU) y activar versiones. No tiene login ni backend propio; habla directo con la API de `ia-entrenamiento`.
-- `base-datos` — esquema de PostgreSQL + PostGIS en `init/`, que Postgres corre **una sola vez** al crear el volumen: `01_esquema.sql` (tabla `usuarios`), `02_analisis.sql` (`ortomosaicos`, `analisis`, `detecciones`), `03_segmentacion.sql` (el contorno de cada detección) y `04_escala.sql` (a qué escala corrió cada análisis). Sobre una base que ya existe hay que aplicar los archivos nuevos a mano, son idempotentes; ver su README. Las cuentas del equipo se cargan con `cliente-api/app/crear_usuarios.py`.
+- `base-datos` — esquema de PostgreSQL + PostGIS en `init/`, que Postgres corre **una sola vez** al crear el volumen: `01_esquema.sql` (tabla `usuarios`), `02_analisis.sql` (`ortomosaicos`, `analisis`, `detecciones`), `03_segmentacion.sql` (el contorno de cada detección), `04_escala.sql` (a qué escala corrió cada análisis) y `05_cascada.sql` (varias pasadas por análisis; reemplaza la columna de 04). Sobre una base que ya existe hay que aplicar los archivos nuevos a mano, son idempotentes; ver su README. Las cuentas del equipo se cargan con `cliente-api/app/crear_usuarios.py`.
 
 Compartido y despliegue:
 
@@ -32,19 +32,30 @@ Compartido y despliegue:
 - **La columna `detecciones.contorno` es `MULTIPOLYGON`, no `POLYGON`.** El contorno de una máscara puede salir con el borde cruzado, y `ST_MakeValid` arregla ese anillo partiéndolo en varios. Al leer se devuelve la pieza de mayor área (las otras son esquirlas de unos píxeles), pero la superficie se mide sobre todas.
 - **La superficie se calcula en dos lugares a propósito.** Un análisis en vivo manda las detecciones al navegador antes de leerlas de vuelta, así que `georref.area_m2` la calcula ahí con un plano tangente al contorno (se aparta menos del 0,1 % a escala de una mancha); al leer un análisis guardado la calcula PostGIS con `ST_Area(contorno::geography)`.
 - **El contorno se simplifica en `ia-inferencia`, no en el cliente.** El borde crudo de una máscara tiene cientos de vértices casi colineales, y ese contorno viaja hasta el navegador y se guarda en la base.
-- **El tamaño de la celda ya no es el de entrada del modelo.** `escala` (1 por
-  defecto, hasta 8) los separa: una celda son `imgsz * escala` píxeles del
-  raster reducidos a `imgsz`, o sea el mismo encuadre con más campo. Es un
-  parámetro de los dos endpoints de análisis y queda guardado en
-  `analisis.escala`. Alejarse sale **más barato**: los overviews del COG hacen
+- **El tamaño de la celda ya no es el de entrada del modelo, y un análisis
+  puede recorrer el campo varias veces.** `escalas` (una lista, "1" por
+  defecto) son las pasadas en orden: en una de escala N la celda son
+  `imgsz * N` píxeles del raster reducidos a `imgsz`, o sea el mismo encuadre
+  con más campo. Con `4,1` la cámara primero se aleja y después se acerca.
+  Queda guardado en `analisis.escalas`, y cada detección anota de qué pasada
+  salió en `detecciones.escala`. Alejarse sale **más barato**: los overviews del COG hacen
   la reducción (leer una celda de 2560 px cuesta 16 ms contra 11 ms una de 640)
   y hay 16 veces menos celdas. Lo que sí hay que saber es que `georref` deshace
   la reducción con el `factor_x`/`factor_y` de cada celda y no con la escala,
   porque en una celda del borde del raster no son lo mismo.
-- **Al terminar un análisis se fusionan las detecciones partidas por el borde
+- **Las dos pasadas de una cascada coinciden en menos de la mitad del terreno.**
+  Medido sobre un cuadrante con `4,1`: la gruesa cubre 32 892 m2, la fina
+  32 660, comparten 14 852 y cada una aporta unos 18 000 que la otra no vio. Con
+  el modelo entrenado solo con teselas finas, la pasada gruesa está fuera de su
+  distribución y marca manchas de casi la celda entera, así que **ese aporte no
+  se puede dar por bueno todavía**: la cascada sirve recién con un modelo
+  entrenado con los aportes de escala gruesa. Por eso `escalas` es "1" por
+  defecto y `datos.superficie_real` devuelve `por_escala`, para que la
+  diferencia no quede escondida en un total.
+- **Al terminar cada pasada se fusionan las detecciones partidas por el borde
   de una celda** (`datos.fusionar_detecciones_vecinas`), y recién al terminar
   porque las dos mitades pueden haber salido en bloques distintos del streaming.
-  Se une **solo entre celdas distintas y vecinas**: medido sobre un análisis
+  Se une **solo entre celdas distintas y vecinas de la misma pasada**: medido sobre un análisis
   real, de los pares de la misma clase que se tocan, 284 estaban dentro de una
   misma celda (manchas que el modelo separó a propósito) y 54 cruzaban el borde.
   El navegador ya recibió las piezas sueltas por SSE, así que el chunk final
@@ -54,7 +65,8 @@ Compartido y despliegue:
   detectada dos veces, una adentro de la otra: medido, el 74 % de los pares que
   se cruzan tienen una con el 90 % o más de su superficie dentro de la otra.
   `datos.suprimir_detecciones_anidadas` borra la chica y deja la grande, que la
-  contiene (no la más confiable: en esos pares la grande es la más confiable
+  contiene, y solo compara dentro de una misma pasada (entre escalas distintas
+  que una contenga a otra es lo esperado, no un duplicado) (no la más confiable: en esos pares la grande es la más confiable
   apenas el 56 % de las veces).
 - **Sumar `area_m2` por detección NO da la superficie afectada.** Aun después de
   suprimir quedan pares que se pisan parcialmente, y ese suelo se cuenta dos
@@ -114,6 +126,7 @@ docker compose -f despliegue/compose.dev.yml run --rm cliente-api python crear_u
 # Migración de una base que ya existe (init/ solo corre al crear el volumen). Idempotente.
 docker compose -f despliegue/compose.dev.yml exec -T db psql -U agrovision -d agrovision < project/servicios/base-datos/init/03_segmentacion.sql
 docker compose -f despliegue/compose.dev.yml exec -T db psql -U agrovision -d agrovision < project/servicios/base-datos/init/04_escala.sql
+docker compose -f despliegue/compose.dev.yml exec -T db psql -U agrovision -d agrovision < project/servicios/base-datos/init/05_cascada.sql
 
 # Sin Docker. Los servidores se corren desde app/: importan sus módulos sin paquete,
 # igual que en la imagen (con "uvicorn app.server:app" falla el import)

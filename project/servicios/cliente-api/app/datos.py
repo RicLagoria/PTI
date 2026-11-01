@@ -82,19 +82,19 @@ def obtener_ruta_archivo(id_: str) -> Optional[str]:
 def crear_analisis(
     ortomosaico_id: str, usuario_id: int, version_modelo: str,
     conf_umbral: float, cuadrante: Optional[int], total_celdas: int,
-    escala: int = 1
+    escalas: Optional[List[int]] = None
 ) -> int:
     with conexion() as con:
         fila = con.execute(
             """
             INSERT INTO analisis
                 (ortomosaico_id, usuario_id, version_modelo, conf_umbral, cuadrante,
-                 total_celdas, escala, estado)
+                 total_celdas, escalas, estado)
             VALUES (%s, %s, %s, %s, %s, %s, %s, 'en_progreso')
             RETURNING id
             """,
             (ortomosaico_id, usuario_id, version_modelo, conf_umbral, cuadrante,
-             total_celdas, escala),
+             total_celdas, escalas or [1]),
         ).fetchone()
         con.commit()
         return fila["id"]
@@ -114,7 +114,7 @@ def obtener_analisis(analisis_id: int) -> Optional[Dict]:
         fila = con.execute(
             """
             SELECT a.id, a.ortomosaico_id, a.version_modelo, a.conf_umbral, a.cuadrante,
-                   a.escala, a.fecha_inicio, a.fecha_fin, a.total_celdas, a.celdas_activas,
+                   a.escalas, a.fecha_inicio, a.fecha_fin, a.total_celdas, a.celdas_activas,
                    a.estado, u.nombre_completo AS usuario_nombre
             FROM analisis a
             LEFT JOIN usuarios u ON u.id = a.usuario_id
@@ -131,7 +131,7 @@ def listar_analisis(ortomosaico_id: str) -> List[Dict]:
         filas = con.execute(
             """
             SELECT a.id, a.version_modelo, a.conf_umbral, a.cuadrante,
-                   a.escala, a.fecha_inicio, a.fecha_fin, a.total_celdas, a.celdas_activas,
+                   a.escalas, a.fecha_inicio, a.fecha_fin, a.total_celdas, a.celdas_activas,
                    a.estado, u.nombre_completo AS usuario_nombre,
                    COUNT(d.id) AS total_detecciones
             FROM analisis a
@@ -149,7 +149,7 @@ def listar_analisis(ortomosaico_id: str) -> List[Dict]:
                 "version_modelo": f["version_modelo"],
                 "conf_umbral": f["conf_umbral"],
                 "cuadrante": f["cuadrante"],
-                "escala": f["escala"],
+                "escalas": f["escalas"],
                 "fecha_inicio": f["fecha_inicio"].isoformat(),
                 "fecha_fin": f["fecha_fin"].isoformat() if f["fecha_fin"] else None,
                 "total_celdas": f["total_celdas"],
@@ -192,7 +192,7 @@ def _contorno_plano(deteccion: Dict) -> Optional[List[int]]:
     return [round(v) for punto in contorno for v in punto]
 
 
-def insertar_detecciones(analisis_id: int, detecciones: List[Dict]) -> None:
+def insertar_detecciones(analisis_id: int, detecciones: List[Dict], escala: int = 1) -> None:
     """Bulk insert de un bloque del streaming. detecciones viene en el
     formato de georref.traducir_deteccion (gps_centro, box_global_px, etc)."""
     if not detecciones:
@@ -209,6 +209,7 @@ def insertar_detecciones(analisis_id: int, detecciones: List[Dict]) -> None:
             d["col"],
             _contorno_geojson(d),
             _contorno_plano(d),
+            escala,
         )
         for d in detecciones
     ]
@@ -224,11 +225,11 @@ def insertar_detecciones(analisis_id: int, detecciones: List[Dict]) -> None:
             """
             INSERT INTO detecciones
                 (analisis_id, clase, confianza, ubicacion, box_global_px, fila, col,
-                 contorno, contorno_global_px)
+                 contorno, contorno_global_px, escala)
             VALUES (%s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, %s,
                     ST_Multi(ST_CollectionExtract(
                         ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 3)),
-                    %s)
+                    %s, %s)
             """,
             filas,
         )
@@ -253,6 +254,7 @@ def _raiz(padres: Dict[int, int], x: int) -> int:
 def fusionar_detecciones_vecinas(
     analisis_id: int,
     a_pixeles: Callable[[List[Tuple[float, float]]], List[Tuple[float, float]]],
+    escala: int = 1,
     tolerancia_m: float = TOLERANCIA_FUSION_M,
 ) -> Dict:
     """
@@ -297,6 +299,9 @@ def fusionar_detecciones_vecinas(
               ON b.analisis_id = a.analisis_id
              AND b.id > a.id
              AND b.clase = a.clase
+             -- Dentro de una misma pasada: fila/col son índices de la grilla de
+             -- *su* escala, así que entre escalas distintas no significan lo mismo
+             AND b.escala = a.escala
              -- Celdas distintas: ver el docstring, es la condición que distingue
              -- el corte de la grilla de dos manchas vecinas de verdad
              AND (b.fila, b.col) <> (a.fila, a.col)
@@ -311,10 +316,11 @@ def fusionar_detecciones_vecinas(
              AND ABS(b.fila - a.fila) <= 1 AND ABS(b.col - a.col) <= 1
              AND ST_DWithin(a.contorno::geography, b.contorno::geography, %s)
             WHERE a.analisis_id = %s
+              AND a.escala = %s
               AND a.contorno IS NOT NULL
               AND b.contorno IS NOT NULL
             """,
-            (tolerancia_m, analisis_id),
+            (tolerancia_m, analisis_id, escala),
         ).fetchall()
 
     if not aristas:
@@ -372,14 +378,14 @@ def fusionar_detecciones_vecinas(
                 """
                 INSERT INTO detecciones
                     (analisis_id, clase, confianza, ubicacion, box_global_px, fila, col,
-                     contorno, contorno_global_px)
+                     contorno, contorno_global_px, escala)
                 VALUES (%s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326), %s, %s, %s,
-                        ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), %s)
+                        ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326), %s, %s)
                 """,
                 (
                     analisis_id, fila["clase"], fila["confianza"], fila["lon"], fila["lat"],
                     [fila["x1"], fila["y1"], fila["x2"], fila["y2"]],
-                    fila["fila"], fila["col"], fila["geojson"], plano,
+                    fila["fila"], fila["col"], fila["geojson"], plano, escala,
                 ),
             )
             con.execute("DELETE FROM detecciones WHERE id = ANY(%s)", (ids,))
@@ -406,7 +412,7 @@ CONTENIDO_DUPLICADO = 0.9
 
 
 def suprimir_detecciones_anidadas(
-    analisis_id: int, contenido_minimo: float = CONTENIDO_DUPLICADO
+    analisis_id: int, escala: int = 1, contenido_minimo: float = CONTENIDO_DUPLICADO
 ) -> Dict:
     """
     Borra las detecciones que están contenidas en otra de la misma clase, y
@@ -435,6 +441,7 @@ def suprimir_detecciones_anidadas(
             """
             DELETE FROM detecciones d
             WHERE d.analisis_id = %s
+              AND d.escala = %s
               AND d.contorno IS NOT NULL
               AND EXISTS (
                   SELECT 1
@@ -443,6 +450,11 @@ def suprimir_detecciones_anidadas(
                     AND o.id <> d.id
                     AND o.clase = d.clase
                     AND o.contorno IS NOT NULL
+                    -- Dentro de una misma pasada. Entre escalas distintas que
+                    -- una contenga a otra es lo esperado y no un duplicado: la
+                    -- mancha grande de la pasada gruesa contiene a las chicas de
+                    -- la fina, que son justamente el detalle que se quiere sumar.
+                    AND o.escala = d.escala
                     -- La más grande gana. El desempate por id es para que dos
                     -- detecciones de la misma área que se contienen entre sí no
                     -- se borren las dos y desaparezca la mancha.
@@ -455,7 +467,7 @@ def suprimir_detecciones_anidadas(
                         >= %s * ST_Area(d.contorno::geography)
               )
             """,
-            (analisis_id, contenido_minimo),
+            (analisis_id, escala, contenido_minimo),
         ).rowcount
         con.commit()
     return {"suprimidas": borradas or 0}
@@ -473,7 +485,12 @@ def superficie_real(analisis_id: int) -> Dict:
     maleza hay" la respuesta correcta es la unión, que es lo que mide esto.
 
     El total no es la suma de las clases: dos clases distintas también pueden
-    pisarse, y en ese caso ese suelo está afectado una sola vez.
+    pisarse, y en ese caso ese suelo está afectado una sola vez. Lo mismo entre
+    pasadas, y ahí importa más: `por_escala` existe para que un análisis en
+    cascada no esconda en un solo número cuánto se parecen sus pasadas. Medido
+    sobre un cuadrante con escalas [4, 1], coinciden en 14 852 m2 y cada una
+    aporta unos 18 000 m2 que la otra no vio, así que el total por sí solo no
+    dice si las dos están viendo lo mismo.
     """
     with conexion() as con:
         filas = con.execute(
@@ -486,6 +503,15 @@ def superficie_real(analisis_id: int) -> Dict:
             """,
             (analisis_id,),
         ).fetchall()
+        por_escala_filas = con.execute(
+            """
+            SELECT escala, ST_Area(ST_Union(contorno)::geography) AS m2
+            FROM detecciones
+            WHERE analisis_id = %s AND contorno IS NOT NULL
+            GROUP BY escala ORDER BY escala DESC
+            """,
+            (analisis_id,),
+        ).fetchall()
 
     por_clase = {}
     total = 0.0
@@ -494,7 +520,8 @@ def superficie_real(analisis_id: int) -> Dict:
             total = round(float(f["m2"] or 0.0), 2)
         else:
             por_clase[f["clase"]] = round(float(f["m2"] or 0.0), 2)
-    return {"total_m2": total, "por_clase": por_clase}
+    por_escala = {str(f["escala"]): round(float(f["m2"] or 0.0), 2) for f in por_escala_filas}
+    return {"total_m2": total, "por_clase": por_clase, "por_escala": por_escala}
 
 
 def obtener_detecciones(analisis_id: int) -> List[Dict]:
