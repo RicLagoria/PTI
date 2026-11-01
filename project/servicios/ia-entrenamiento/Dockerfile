@@ -22,6 +22,9 @@ RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/wh
 COPY nucleo/ nucleo/
 COPY api/ api/
 COPY worker/ worker/
+# Se corre a mano, no en el arranque: compara versiones sobre los mismos
+# aportes separando por escala. Ver su docstring.
+COPY comparar_escalas.py .
 # Corrida train-3: se publica como primera versión si el registro arranca vacío
 COPY semilla/ semilla/
 

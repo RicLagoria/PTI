@@ -264,6 +264,39 @@ a igual entre versiones entrenadas con los mismos aportes. Si la evaluación
 falla, el modelo igual se publica y el error queda en `error_evaluacion` del
 `meta.json`.
 
+## Comparar dos versiones: `comparar_escalas.py`
+
+El mAP que publica un entrenamiento **no sirve para comparar dos versiones que
+no se entrenaron con los mismos aportes**: cada una se midió contra su propio
+split de validación. Y en cuanto se mezclan escalas deja de servir incluso para
+una sola versión, porque un número solo no dice si mejoró en grueso o empeoró en
+fino.
+
+`comparar_escalas.py` corre la validación de cada versión sobre los mismos
+aportes, agrupados por escala, y pone los números lado a lado. Se corre a mano,
+dentro de la imagen (como `crear_usuarios.py` en cliente-api):
+
+```bash
+docker compose -p pti-ia -f despliegue/compose.ia.yml run --rm \
+    ia-entrenamiento-api python comparar_escalas.py \
+    --datasets <id-del-aporte-fino>,<id-del-aporte-4x>
+```
+
+Por defecto compara todas las versiones de segmentación del registro y usa la
+GPU si está; `--versiones` y `--dispositivo` lo acotan.
+
+Lo que hay que elegir bien son los aportes: tienen que ser **los mismos para
+todas las versiones y, para que el número signifique algo, no haber entrenado a
+ninguna**. El script avisa cuando una versión se entrenó con alguno de los que
+se le pasaron (lo lee del `meta.json` de la versión), pero no se niega: comparar
+sobre datos vistos sigue sirviendo para ordenar dos modelos entre sí, solo que
+los valores absolutos salen optimistas.
+
+Los aportes se agrupan por la escala que tienen en su `meta.json`; los que no la
+tienen son de escala 1. Así, pasándole un aporte fino y su derivado de 4× se ve
+en una tabla si una versión mejoró en grueso sin perder en fino, que es la única
+forma de saber si conviene activarla para análisis en cascada.
+
 ## Semilla
 
 `semilla/train-3/` es la corrida con la que se entrenó el modelo del MVP. Si
