@@ -16,8 +16,27 @@ info:
       disponible lo dice `GET /dispositivos`.
     - **Hasta cuándo** (`epocas` y `paciencia`): `epocas` es el tope y `paciencia` corta
       antes si el mAP de validación deja de mejorar.
-  version: 1.1.0
+  version: 1.1.1
 paths:
+  /salud:
+    get:
+      summary: Estado del servicio
+      description: Sonda de vida para healthchecks y para verificar que la API responde.
+      operationId: getSalud
+      responses:
+        '200':
+          description: Servicio operativo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  estado:
+                    type: string
+                    example: ok
+                  servicio:
+                    type: string
+                    example: ia-entrenamiento-api
   /clases:
     get:
       summary: Taxonomía canónica de clases
