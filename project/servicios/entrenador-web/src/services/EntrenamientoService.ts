@@ -2,7 +2,11 @@
 // src/services/EntrenamientoService.ts
 // =====================================
 // Cliente de ia-entrenamiento-api (contratos/ia-entrenamiento.openapi.yaml).
+// Todos los endpoints piden el token que emitió cliente-api al loguearse: va en
+// el header Authorization, salvo en los dos casos que no pueden mandar headers
+// (ver conTokenEnUrl en AuthService).
 import ApiConfig from "../config/apiConfig";
+import { conTokenEnUrl, headerAuth, sesionCaida } from "./AuthService";
 
 export interface Dataset {
   id: string;
@@ -15,8 +19,52 @@ export interface Dataset {
   anotaciones_por_clase: Record<string, number>;
   imagenes_sin_objetos: number;
   imagenes_sin_anotar: number;
+  /** Imágenes sin .json que se declararon fondo al subir, en vez de ignorarse. */
+  fondos_declarados?: number;
   formas_ignoradas: number;
   cajas_descartadas: number;
+  /** Contornos (polígonos) del aporte: con ellos se entrena segmentación. */
+  total_contornos?: number;
+  contornos_por_clase?: Record<string, number>;
+  /** Contornos que son solo las 4 esquinas de un rectángulo: no aportan forma. */
+  contornos_de_caja?: number;
+  contornos_descartados?: number;
+  /** Falta en los aportes subidos antes de que se guardaran los contornos. */
+  tiene_segmentacion?: boolean;
+  /** Id del aporte del que se derivó pegando teselas vecinas; falta si se subió. */
+  derivado_de?: string;
+  /** Cuántas teselas por lado tiene cada ventana. Solo en un aporte derivado. */
+  escala?: number;
+  lado_ventana_px?: number;
+  /** Manchas que estaban partidas por una costura y se unieron al pegar. */
+  formas_unidas?: number;
+}
+
+/** Respuesta de GET /datasets/{id}/ventanas: qué escalas gruesas dan algo. */
+export interface VentanasDisponibles {
+  apto: boolean;
+  /** Por qué no se puede derivar de este aporte; null cuando se puede. */
+  motivo: string | null;
+  paso_px?: number;
+  /** Ventanas completas por escala, indexadas por el número de escala. */
+  escalas: Record<string, number>;
+}
+
+/** Qué entrena un modelo: cajas (detect) o contornos (segment). */
+export type Tarea = "detect" | "segment";
+
+export type Dispositivo = "cpu" | "gpu";
+
+/** Respuesta de GET /dispositivos: si se puede entrenar en GPU, y si no, por qué. */
+export interface Dispositivos {
+  gpu_disponible: boolean;
+  /** Qué falta para poder usar la GPU; null cuando está disponible. */
+  motivo: string | null;
+  torch_con_cuda: boolean;
+  cuda?: string | null;
+  gpus: { indice: number; nombre: string; memoria_gb: number }[];
+  lote_cpu: number;
+  lote_gpu: number;
 }
 
 export type EstadoTrabajo = "pendiente" | "ejecutando" | "completado" | "fallido" | "cancelado";
@@ -35,6 +83,12 @@ export interface Metricas {
   recall?: number;
   map50?: number;
   map50_95?: number;
+  // Solo en segmentación: lo mismo medido sobre la máscara y no sobre la caja
+  // que la encierra. Es la métrica que dice si el contorno sigue a la mancha.
+  precision_mascara?: number;
+  recall_mascara?: number;
+  map50_mascara?: number;
+  map50_95_mascara?: number;
 }
 
 /** Avance que publica el worker mientras el trabajo está en ejecución. */
@@ -58,6 +112,12 @@ export interface Trabajo {
   imgsz: number;
   pesos_base: string;
   fraccion_validacion?: number;
+  /** Sale de los pesos de partida. Falta en los trabajos de antes de segmentación. */
+  tarea?: Tarea;
+  /** Dónde entrena. Falta en los trabajos encolados antes de que se pudiera elegir. */
+  dispositivo?: Dispositivo;
+  /** Early stopping. 0 o ausente: entrena las `epocas` completas. */
+  paciencia?: number;
   progreso_epocas: number;
   metricas: Metricas;
   version_generada: string | null;
@@ -75,6 +135,8 @@ export interface Trabajo {
 export interface Modelo {
   version: string;
   activo: boolean;
+  /** Lo que sabe hacer: con "segment" el análisis devuelve contornos. */
+  tarea: Tarea;
   tamano_mb: number;
   meta: {
     version?: string;
@@ -85,6 +147,11 @@ export interface Modelo {
     epocas?: number;
     imgsz?: number;
     pesos_base?: string;
+    tarea?: Tarea;
+    dispositivo?: Dispositivo;
+    /** Nombre de la placa, si se entrenó en GPU. */
+    placa?: string | null;
+    lote?: number;
     clases?: string[];
     imagenes_train?: number;
     imagenes_val?: number;
@@ -107,6 +174,12 @@ export interface MetricasPorClase {
 export interface Evaluacion {
   conjunto: string;
   metricas: { precision: number; recall: number; map50: number; map50_95: number };
+  /**
+   * Lo mismo medido sobre el contorno y no sobre su caja. null en los modelos de
+   * detección. Un mAP de caja alto con uno de máscara bajo significa que el
+   * modelo encuentra la maleza pero dibuja mal su borde.
+   */
+  metricas_mascara: { precision: number; recall: number; map50: number; map50_95: number } | null;
   umbral_recomendado: number | null;
   por_clase: MetricasPorClase[];
   matriz_confusion: {
@@ -128,10 +201,14 @@ export interface EpocaHistorial {
   recall: number | null;
   map50: number | null;
   map50_95: number | null;
+  /** Solo en segmentación */
+  map50_mascara?: number | null;
+  map50_95_mascara?: number | null;
 }
 
 export interface DetalleModelo {
   version: string;
+  tarea: Tarea;
   /** null en las versiones entrenadas fuera del sistema (la semilla) */
   evaluacion: Evaluacion | null;
   historial: EpocaHistorial[];
@@ -145,10 +222,29 @@ export interface SolicitudEntrenamiento {
   imgsz: number;
   pesos_base: string;
   fraccion_validacion: number;
+  dispositivo: Dispositivo;
+  /** Épocas seguidas sin mejorar antes de cortar; 0 entrena las `epocas` completas */
+  paciencia: number;
 }
 
-/** Pesos oficiales que acepta la API además de las versiones del registro. */
-export const PESOS_BASE_OFICIALES = ["yolov8n.pt"];
+/**
+ * Pesos oficiales que acepta la API, con lo que entrena cada uno, además de las
+ * versiones del registro. La tarea no se elige aparte: viene con los pesos,
+ * porque el .pt trae la cabeza entrenada para cajas o para máscaras y no se
+ * puede seguir entrenando uno con las etiquetas del otro formato. Misma lista
+ * que registro.TAREA_DE_PESOS_OFICIALES del lado del servidor.
+ */
+export const TAREA_DE_PESOS_OFICIALES: Record<string, Tarea> = {
+  "yolov8n-seg.pt": "segment",
+  "yolov8n.pt": "detect",
+};
+
+export const PESOS_BASE_OFICIALES = Object.keys(TAREA_DE_PESOS_OFICIALES);
+
+export const ETIQUETA_TAREA: Record<Tarea, string> = {
+  segment: "Contornos",
+  detect: "Cajas",
+};
 
 /**
  * Error de la API con el detalle que manda cuando rechaza un aporte o un
@@ -192,11 +288,20 @@ function errorDesdeRespuesta(cuerpo: unknown, mensajeDefault: string): ErrorApi 
 async function pedir<T>(ruta: string, mensajeDefault: string, opciones?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${ApiConfig.baseURL}${ruta}`, opciones);
+    res = await fetch(`${ApiConfig.baseURL}${ruta}`, {
+      ...opciones,
+      // Los headers de cada pedido (el Content-Type de los POST) se suman a
+      // este objeto en vez de reemplazarlo, que es lo que pasaría si se dejara
+      // opciones.headers tal cual: el Authorization quedaría afuera.
+      headers: { ...headerAuth(), ...(opciones?.headers as Record<string, string> | undefined) },
+    });
   } catch {
     throw new ErrorApi("No hay conexión con ia-entrenamiento-api.");
   }
   if (!res.ok) {
+    // Token vencido, o los dos planos con JWT_SECRET distinto: volver al login
+    // en vez de mostrar el error en una pantalla que ya no va a poder cargar.
+    if (res.status === 401) sesionCaida();
     let cuerpo: unknown = null;
     try {
       cuerpo = await res.json();
@@ -210,10 +315,24 @@ async function pedir<T>(ruta: string, mensajeDefault: string, opciones?: Request
 
 export const listarClases = () => pedir<string[]>("/clases", "No se pudo obtener la lista de clases.");
 
+export const listarDispositivos = () =>
+  pedir<Dispositivos>("/dispositivos", "No se pudo saber si hay GPU disponible.");
+
 export const listarDatasets = () => pedir<Dataset[]>("/datasets", "No se pudo obtener la lista de aportes.");
 
 export const eliminarDataset = (id: string) =>
   pedir<void>(`/datasets/${id}`, "No se pudo eliminar el aporte.", { method: "DELETE" });
+
+export const ventanasDisponibles = (id: string) =>
+  pedir<VentanasDisponibles>(`/datasets/${id}/ventanas`, "No se pudo saber qué escalas se pueden derivar.");
+
+/** Deriva un aporte de escala gruesa por cada escala pedida. Devuelve los nuevos. */
+export const generarVentanas = (id: string, escalas: number[]) =>
+  pedir<Dataset[]>(`/datasets/${id}/ventanas`, "No se pudieron generar las escalas gruesas.", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ escalas }),
+  });
 
 export const listarTrabajos = () => pedir<Trabajo[]>("/entrenamientos", "No se pudo obtener la lista de entrenamientos.");
 
@@ -237,8 +356,11 @@ export const activarModelo = (version: string) =>
 export const obtenerDetalleModelo = (version: string) =>
   pedir<DetalleModelo>(`/modelos/${encodeURIComponent(version)}/detalle`, "No se pudo obtener la evaluación del modelo.");
 
+/** Va en un <img src>, que no manda headers: el token viaja como query param. */
 export const urlImagenModelo = (version: string, nombre: string) =>
-  `${ApiConfig.baseURL}/modelos/${encodeURIComponent(version)}/imagenes/${encodeURIComponent(nombre)}`;
+  conTokenEnUrl(
+    `${ApiConfig.baseURL}/modelos/${encodeURIComponent(version)}/imagenes/${encodeURIComponent(nombre)}`
+  );
 
 /**
  * Cuántas imágenes de un aporte van a validación. Misma cuenta que
@@ -259,12 +381,16 @@ export function cantidadValidacion(total: number, fraccion: number): number {
 export function subirDataset(
   archivo: File,
   nombre: string,
+  /** Declarar fondo las imágenes sin .json, en vez de ignorarlas. */
+  fondosImplicitos: boolean,
   onProgreso: (pct: number) => void,
   onSubido: () => void
 ): Promise<Dataset> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${ApiConfig.baseURL}/datasets`);
+    // XHR sí puede mandar headers; hay que setearlos después del open().
+    for (const [clave, valor] of Object.entries(headerAuth())) xhr.setRequestHeader(clave, valor);
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgreso(Math.round((e.loaded / e.total) * 100));
@@ -279,13 +405,17 @@ export function subirDataset(
         // respuesta sin JSON (por ejemplo, un 502 de nginx)
       }
       if (xhr.status === 201) resolve(cuerpo as Dataset);
-      else reject(errorDesdeRespuesta(cuerpo, `La API respondió ${xhr.status} al subir el aporte.`));
+      else {
+        if (xhr.status === 401) sesionCaida();
+        reject(errorDesdeRespuesta(cuerpo, `La API respondió ${xhr.status} al subir el aporte.`));
+      }
     };
     xhr.onerror = () => reject(new ErrorApi("Se perdió la conexión con el servidor."));
 
     const formulario = new FormData();
     formulario.append("archivo", archivo);
     if (nombre.trim()) formulario.append("nombre", nombre.trim());
+    if (fondosImplicitos) formulario.append("fondos_implicitos", "true");
     xhr.send(formulario);
   });
 }
@@ -294,13 +424,17 @@ export function subirDataset(
  * Sigue un entrenamiento por SSE. La API manda el trabajo completo cada 2 s y
  * corta el stream al terminar; hay que cerrar el EventSource en ese momento
  * porque si no el navegador reconecta solo y vuelve a pedir el stream.
+ *
+ * EventSource no manda headers, así que el token va en la URL. Tampoco deja ver
+ * el código de respuesta: si el token está vencido, esto llega como onCorte()
+ * igual que una caída de red, y el 401 lo descubre el siguiente pedido normal.
  */
 export function seguirTrabajo(
   id: string,
   onCambio: (trabajo: Trabajo) => void,
   onCorte: () => void
 ): EventSource {
-  const es = new EventSource(`${ApiConfig.baseURL}/entrenamientos/${id}/stream`);
+  const es = new EventSource(conTokenEnUrl(`${ApiConfig.baseURL}/entrenamientos/${id}/stream`));
   es.onmessage = (event) => {
     const trabajo: Trabajo = JSON.parse(event.data);
     onCambio(trabajo);

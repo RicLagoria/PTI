@@ -1,8 +1,44 @@
 openapi: 3.0.3
 info:
   title: AgroVision - IA Entrenamiento API
-  description: Servicio para gestión de datasets, ejecución de entrenamientos y registro de versiones de modelos YOLO.
-  version: 1.0.0
+  description: |
+    Servicio para gestión de datasets, ejecución de entrenamientos y registro de versiones
+    de modelos YOLO.
+
+    Un entrenamiento tiene dos ejes que no se piden igual:
+
+    - **Qué entrena** (`tarea`): `segment` aprende el contorno de cada mancha y `detect`
+      solo la caja que la encierra. No es un parámetro: viene con `pesos_base`, porque el
+      .pt trae la cabeza entrenada para una cosa o la otra y no se puede seguir entrenando
+      uno con las etiquetas del otro formato. De cada aporte se guardan los dos formatos al
+      subirlo, así que un mismo aporte sirve para las dos tareas.
+    - **Dónde entrena** (`dispositivo`): `cpu` o `gpu`. Se pide explícitamente; qué hay
+      disponible lo dice `GET /dispositivos`.
+    - **Hasta cuándo** (`epocas` y `paciencia`): `epocas` es el tope y `paciencia` corta
+      antes si el mAP de validación deja de mejorar.
+  version: 1.2.0
+
+# Todos los endpoints piden el token del sitio de análisis. Las cuentas son las
+# mismas, pero este servicio no las conoce: quien valida usuario y contraseña es
+# cliente-api (POST /auth/login, que no es parte de este contrato) y acá solo se
+# verifica la firma del JWT con el mismo JWT_SECRET. GET /salud es la excepción y
+# no está en este contrato.
+security:
+  - tokenCliente: []
+
+components:
+  securitySchemes:
+    tokenCliente:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT emitido por `cliente-api` en `POST /auth/login`. Viaja en
+        `Authorization: Bearer <token>`, y también se acepta como query param
+        `?token=<token>` para los dos pedidos que no pueden mandar headers:
+        `GET /entrenamientos/{id}/stream` (EventSource) y
+        `GET /modelos/{v}/imagenes/{nombre}` (`<img src>`).
+
 paths:
   /clases:
     get:
@@ -17,6 +53,59 @@ paths:
                 type: array
                 items:
                   type: string
+
+  /dispositivos:
+    get:
+      summary: Si se puede entrenar en GPU, y si no, qué falta
+      description: |
+        Describe lo que ve **la API**, no el worker: son contenedores distintos (la GPU se le
+        reserva al worker), aunque en los dos compose corran en la misma máquina y desde la
+        misma imagen. Alcanza para que entrenador-web habilite o no la opción; la palabra
+        final la tiene el worker, que falla el trabajo en el momento si se pidió GPU y no la
+        tiene, con `motivo` como mensaje de error.
+      operationId: getDispositivos
+      responses:
+        '200':
+          description: Dispositivos disponibles
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [gpu_disponible, motivo, torch_con_cuda, gpus, lote_cpu, lote_gpu]
+                properties:
+                  gpu_disponible:
+                    type: boolean
+                  motivo:
+                    type: string
+                    nullable: true
+                    description: >
+                      Qué falta para poder entrenar en GPU: que la imagen se construya con
+                      las ruedas CUDA de torch, o que el contenedor tenga acceso a la placa.
+                      null cuando la GPU está disponible.
+                  torch_con_cuda:
+                    type: boolean
+                    description: Si el torch instalado sabe hablar con una GPU (false con las ruedas +cpu).
+                  cuda:
+                    type: string
+                    nullable: true
+                    description: Versión de CUDA con la que se compiló torch.
+                  gpus:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        indice: {type: integer}
+                        nombre: {type: string}
+                        memoria_gb: {type: number}
+                    example: [{indice: 0, nombre: "NVIDIA GeForce RTX 3080", memoria_gb: 10.0}]
+                  lote_cpu:
+                    type: integer
+                    description: Imágenes por lote al entrenar en CPU (LOTE_CPU).
+                    example: 2
+                  lote_gpu:
+                    type: integer
+                    description: Imágenes por lote al entrenar en GPU (LOTE_GPU).
+                    example: 16
 
   /datasets:
     get:
@@ -40,6 +129,23 @@ paths:
                       type: integer
                     total_anotaciones:
                       type: integer
+                      description: Cajas convertidas, para entrenar detección.
+                    total_contornos:
+                      type: integer
+                      description: Contornos convertidos, para entrenar segmentación.
+                    contornos_de_caja:
+                      type: integer
+                      description: >
+                        De esos contornos, cuántos son solo las 4 esquinas de un rectángulo
+                        de labelme: entrenar segmentación con esos le enseña rectángulos.
+                    contornos_descartados:
+                      type: integer
+                      description: Formas con caja pero sin contorno usable (una línea, o un polígono que el recorte dejó sin área).
+                    tiene_segmentacion:
+                      type: boolean
+                      description: >
+                        Si el aporte sirve para entrenar segmentación. Falta en los aportes
+                        subidos antes de que se guardaran los contornos, que tampoco sirven.
                     fecha_creacion:
                       type: string
     post:
@@ -59,6 +165,16 @@ paths:
                   format: binary
                 nombre:
                   type: string
+                fondos_implicitos:
+                  type: boolean
+                  default: false
+                  description: >
+                    Declarar como fondo (ejemplo negativo) las imágenes que no tienen
+                    `.json`, en vez de ignorarlas. Hace falta porque labelme no guarda
+                    una imagen en la que no se dibujó nada. Apagado por defecto: una
+                    imagen que nadie revisó declarada como fondo le enseña al modelo que
+                    la maleza que hay ahí no es maleza. El resultado informa cuántas
+                    fueron en `fondos_declarados`.
       responses:
         '201':
           description: Dataset procesado y validado
@@ -112,6 +228,91 @@ paths:
         '204':
           description: Dataset eliminado
 
+  /datasets/{id}/ventanas:
+    get:
+      summary: Escalas gruesas que se pueden derivar de un aporte
+      description: >
+        Cuántas ventanas completas daría cada escala, sin generarlas. Una ventana
+        de escala N son N×N teselas vecinas pegadas, y es "completa" solo si
+        están las N² y todas etiquetadas.
+      operationId: getVentanasDataset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Escalas y cuántas ventanas daría cada una
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [apto, escalas]
+                properties:
+                  apto:
+                    type: boolean
+                    description: Si del aporte se puede derivar escala gruesa.
+                  motivo:
+                    type: string
+                    nullable: true
+                    description: Por qué no se puede; null cuando sí.
+                  paso_px:
+                    type: integer
+                    description: Lado de cada tesela, en píxeles.
+                  escalas:
+                    type: object
+                    description: Ventanas completas por escala, con la escala como clave.
+                    additionalProperties:
+                      type: integer
+        '404':
+          description: Dataset no encontrado
+    post:
+      summary: Derivar aportes de escala gruesa
+      description: >
+        Pega N×N teselas vecinas del aporte, reduce cada ventana a 640 px y
+        recompone las etiquetas. No hay que volver a subir nada: las teselas ya
+        están guardadas con su posición en el nombre. Las manchas partidas por
+        una costura interna se unen. Cada escala queda como un aporte nuevo.
+      operationId: postVentanasDataset
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [escalas]
+              properties:
+                escalas:
+                  type: array
+                  minItems: 1
+                  maxItems: 4
+                  items:
+                    type: integer
+                    minimum: 2
+                    maximum: 8
+                  description: Teselas por lado de cada ventana.
+      responses:
+        '201':
+          description: Aportes derivados, uno por escala
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+        '400':
+          description: El aporte no sirve para derivar, o la escala no da ninguna ventana completa
+        '404':
+          description: Dataset no encontrado
+
   /entrenamientos:
     get:
       summary: Lista de trabajos de entrenamiento
@@ -146,6 +347,19 @@ paths:
                   default: 50
                   minimum: 1
                   maximum: 300
+                  description: >
+                    Tope de épocas. Con `paciencia` distinta de 0 puede cortar antes.
+                paciencia:
+                  type: integer
+                  default: 30
+                  minimum: 0
+                  maximum: 300
+                  description: >
+                    Early stopping: épocas seguidas sin mejorar después de las cuales se
+                    corta, `0` lo desactiva. Mira el fitness de validación (mAP), no la
+                    pérdida. No cambia qué modelo se publica: la versión siempre sale del
+                    best.pt de la mejor época, así que cortar solo ahorra tiempo. Las épocas
+                    que realmente corrió quedan en `metricas.epocas_entrenadas`.
                 imgsz:
                   type: integer
                   default: 640
@@ -154,8 +368,22 @@ paths:
                   multipleOf: 32
                 pesos_base:
                   type: string
-                  default: "yolov8n.pt"
-                  description: "yolov8n.pt o el nombre de una versión del registro"
+                  default: "yolov8n-seg.pt"
+                  description: >
+                    `yolov8n-seg.pt` (contornos), `yolov8n.pt` (cajas) o el nombre de una
+                    versión del registro, que sigue entrenando esa versión con su misma
+                    tarea. De acá sale la tarea del trabajo.
+                dispositivo:
+                  type: string
+                  default: cpu
+                  enum: [cpu, gpu]
+                  description: >
+                    Dónde entrena. `gpu` necesita que la imagen del worker esté construida
+                    con las ruedas CUDA de torch y que el contenedor tenga acceso a la placa
+                    (ver despliegue/compose.ia.gpu.yml); `GET /dispositivos` dice si se puede.
+                    Si se pide igual y no está, el trabajo queda en estado fallido con el
+                    motivo, en vez de entrenar en CPU sin avisar. Define el tamaño de lote:
+                    LOTE_CPU o LOTE_GPU.
                 fraccion_validacion:
                   type: number
                   default: 0.25
@@ -171,8 +399,10 @@ paths:
           description: Entrenamiento encolado
         '400':
           description: >
-            Algún dataset no existe (`datasets_inexistentes`) o los pesos de
-            partida no están permitidos (`pesos_base_validos`).
+            Algún dataset no existe (`datasets_inexistentes`), los pesos de
+            partida no están permitidos (`pesos_base_validos`), o se pidieron unos
+            pesos de segmentación con aportes que no tienen contornos
+            (`datasets_sin_contornos`).
 
   /entrenamientos/{id}/cancelar:
     post:
@@ -272,6 +502,10 @@ paths:
                 properties:
                   version:
                     type: string
+                  tarea:
+                    type: string
+                    enum: [detect, segment]
+                    description: Las versiones publicadas antes de que existiera segmentación son detect.
                   evaluacion:
                     nullable: true
                     type: object
@@ -283,6 +517,22 @@ paths:
                         type: string
                       metricas:
                         type: object
+                        description: >
+                          Sobre la caja. En un modelo de segmentación la caja es la que
+                          encierra la máscara, así que estas métricas dicen si encontró la
+                          mancha, no si le dibujó bien el borde.
+                        properties:
+                          precision: {type: number}
+                          recall: {type: number}
+                          map50: {type: number}
+                          map50_95: {type: number}
+                      metricas_mascara:
+                        type: object
+                        nullable: true
+                        description: >
+                          Lo mismo medido sobre el contorno. null en los modelos de
+                          detección. Un mAP de caja alto con uno de máscara bajo significa
+                          que encuentra la maleza pero dibuja mal su borde.
                         properties:
                           precision: {type: number}
                           recall: {type: number}

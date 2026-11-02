@@ -1,8 +1,15 @@
 openapi: 3.0.3
 info:
   title: AgroVision - IA Inferencia API
-  description: Servicio de inferencia para detección de malezas y anomalías en teselas de ortomosaicos.
-  version: 1.0.0
+  description: |
+    Servicio de inferencia para detección de malezas y anomalías en teselas de ortomosaicos.
+
+    Según la tarea del modelo activo las detecciones traen, además de la caja, el
+    contorno de la mancha: con `tarea: segment` cada detección incluye
+    `contorno_local`, y con `tarea: detect` no. El servicio sigue sin saber de
+    geografía: todo son píxeles de la tesela recibida, identificada por un id
+    opaco, y es cliente-api el que los lleva a coordenadas.
+  version: 1.1.0
 paths:
   /salud:
     get:
@@ -47,6 +54,14 @@ paths:
                   imgsz:
                     type: integer
                     example: 640
+                  tarea:
+                    type: string
+                    description: |
+                      Qué devuelve el modelo activo. `segment` agrega el contorno de cada
+                      detección; `detect` solo da la caja. Sale de los pesos, no de una
+                      configuración: activar otra versión en ia-entrenamiento lo cambia.
+                    enum: [detect, segment]
+                    example: segment
                   metricas:
                     type: object
                     additionalProperties: true
@@ -54,7 +69,10 @@ paths:
   /detectar:
     post:
       summary: Detección por lote sobre teselas
-      description: Recibe teselas en una petición multipart y devuelve cajas en píxeles locales asociadas a cada id de tesela.
+      description: |
+        Recibe teselas en una petición multipart y devuelve, en píxeles locales y asociadas
+        a cada id de tesela, la caja de cada detección y —con un modelo de segmentación—
+        el contorno de la mancha.
       operationId: postDetectar
       parameters:
         - name: conf
@@ -85,6 +103,11 @@ paths:
                   version_modelo:
                     type: string
                     example: v1
+                  tarea:
+                    type: string
+                    description: Igual que en /modelo. Con `detect` ninguna detección trae contorno_local.
+                    enum: [detect, segment]
+                    example: segment
                   detecciones:
                     type: array
                     items:
@@ -110,4 +133,22 @@ paths:
                           items:
                             type: number
                           example: [120.5, 45.0, 180.2, 98.4]
+                        contorno_local:
+                          type: array
+                          description: |
+                            Borde de la mancha detectada como [[x, y], ...] en píxeles de la
+                            tesela recibida, ya simplificado (unas decenas de vértices, no los
+                            cientos que tiene el borde de la máscara). El anillo no viene
+                            cerrado: el último vértice no repite al primero.
+
+                            Está solo con un modelo de segmentación, y puede faltar en una
+                            detección concreta si su máscara es tan chica que no encierra área.
+                          items:
+                            type: array
+                            items:
+                              type: number
+                            minItems: 2
+                            maxItems: 2
+                          minItems: 3
+                          example: [[120.5, 45.0], [180.2, 52.1], [176.0, 98.4], [128.3, 90.2]]
 

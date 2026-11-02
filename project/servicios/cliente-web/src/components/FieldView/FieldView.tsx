@@ -19,7 +19,7 @@ import {
   DropdownItem,
 } from "@heroui/react";
 import { Camera, MapPin, UploadCloud, Radar, History, FileJson, FileSpreadsheet, FileText, Eye, User, ScanSearch, MoreVertical, Download } from "lucide-react";
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Polygon, Popup, useMap } from "react-leaflet";
 import L from "leaflet";
 import type { LatLngBoundsExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -104,6 +104,86 @@ function iconoDeteccion(clase: string, confianza: number): L.DivIcon {
   });
 }
 
+/** Superficie legible: una mancha se mide en m², un lote entero en hectáreas. */
+function superficie(metros2: number): string {
+  return metros2 >= 10_000
+    ? `${(metros2 / 10_000).toLocaleString("es-AR", { maximumFractionDigits: 2 })} ha`
+    : `${Math.round(metros2).toLocaleString("es-AR")} m²`;
+}
+
+/**
+ * Una detección en el mapa. Con un modelo de segmentación trae su contorno y se
+ * dibuja la mancha; con uno de detección solo hay caja, y se cae al marcador de
+ * siempre (ubicado en el centro de la caja, ver posicionDeDeteccion).
+ *
+ * El contorno ya viene en lat/lon desde cliente-api, así que no hace falta
+ * interpolar sobre los bounds como con la caja: es la posición real, sin asumir
+ * que el raster está orientado al norte.
+ */
+function MarcaDeteccion({
+  deteccion,
+  meta,
+  compacto = false,
+}: {
+  deteccion: Deteccion;
+  meta: ImagenMeta | null;
+  compacto?: boolean;
+}) {
+  const color = colorDeClase(deteccion.clase);
+  const pos = posicionDeDeteccion(deteccion, meta);
+
+  const popup = (
+    <Popup>
+      {compacto ? (
+        <div className="w-44 space-y-1 py-0.5 text-xs">
+          <div>
+            <span className="font-semibold capitalize">{deteccion.clase}</span> · {deteccion.confianza.toFixed(0)}%
+          </div>
+          {deteccion.area_m2 !== undefined && <div className="text-slate-400">{superficie(deteccion.area_m2)}</div>}
+        </div>
+      ) : (
+        <div className="w-44 space-y-2 py-0.5">
+          <div className="flex items-center justify-between gap-2">
+            <span className="flex items-center gap-1.5 text-sm font-semibold capitalize">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} />
+              {deteccion.clase}
+            </span>
+            <span className="shrink-0 text-xs font-medium text-slate-400">{deteccion.confianza.toFixed(0)}%</span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-600">
+            <div className="h-full rounded-full" style={{ width: `${deteccion.confianza}%`, background: color }} />
+          </div>
+          {deteccion.area_m2 !== undefined && (
+            <p className="text-xs text-slate-500 dark:text-slate-400">Superficie {superficie(deteccion.area_m2)}</p>
+          )}
+          <p className="font-mono text-[11px] text-slate-400">
+            {pos.lat.toFixed(5)}, {pos.lon.toFixed(5)}
+          </p>
+        </div>
+      )}
+    </Popup>
+  );
+
+  if (deteccion.contorno && deteccion.contorno.length >= 3) {
+    return (
+      <Polygon
+        positions={deteccion.contorno}
+        // Translúcido: el borde dice dónde está la mancha y el relleno deja ver
+        // el cultivo debajo, que es lo que se mira para darle o no la razón
+        pathOptions={{ color, weight: 2, opacity: 0.9, fillColor: color, fillOpacity: 0.3 }}
+      >
+        {popup}
+      </Polygon>
+    );
+  }
+
+  return (
+    <Marker position={[pos.lat, pos.lon]} icon={iconoDeteccion(deteccion.clase, deteccion.confianza)}>
+      {popup}
+    </Marker>
+  );
+}
+
 /**
  * Centra y ajusta el zoom al contenedor. No alcanza con hacerlo una sola vez
  * al montar: el contenedor puede no tener su tamaño final resuelto todavía
@@ -173,12 +253,22 @@ function AnilloProgreso({ progreso }: { progreso: number }) {
   );
 }
 
+/**
+ * Cuántas detecciones y cuánta superficie hay de cada clase, de mayor a menor.
+ * La superficie queda en 0 si el análisis corrió con un modelo de detección: de
+ * un punto no sale ningún área, solo de un contorno.
+ */
 function desglosePorClase(detecciones: Deteccion[]) {
-  const conteo = detecciones.reduce<Record<string, number>>((acc, d) => {
-    acc[d.clase] = (acc[d.clase] ?? 0) + 1;
-    return acc;
-  }, {});
-  return Object.entries(conteo).sort((a, b) => b[1] - a[1]);
+  const conteo: Record<string, { cantidad: number; areaM2: number }> = {};
+  for (const d of detecciones) {
+    const acumulado = conteo[d.clase] ?? { cantidad: 0, areaM2: 0 };
+    acumulado.cantidad += 1;
+    acumulado.areaM2 += d.area_m2 ?? 0;
+    conteo[d.clase] = acumulado;
+  }
+  return Object.entries(conteo)
+    .map(([clase, c]) => ({ clase, ...c }))
+    .sort((a, b) => b.cantidad - a.cantidad);
 }
 
 const ESTADO_ESTILO: Record<string, string> = {
@@ -371,10 +461,12 @@ export default function FieldView() {
   }
 
   const clasesOrdenadas = desglosePorClase(detecciones);
-  const claseDominante = clasesOrdenadas[0]?.[0];
+  const claseDominante = clasesOrdenadas[0]?.clase;
+  const areaTotal = clasesOrdenadas.reduce((s, c) => s + c.areaM2, 0);
   const aspecto = aspectoDeImagen(meta);
 
   const clasesDrawer = desglosePorClase(analisisDrawer?.detecciones ?? []);
+  const areaDrawer = clasesDrawer.reduce((s, c) => s + c.areaM2, 0);
 
   return (
     <div className="space-y-8">
@@ -527,40 +619,16 @@ export default function FieldView() {
                             attribution="Ortomosaico"
                           />
                         )}
-                        {detecciones.map((d, i) => {
-                          const pos = posicionDeDeteccion(d, meta);
-                          return (
-                            <Marker key={`${d.fila}-${d.col}-${i}`} position={[pos.lat, pos.lon]} icon={iconoDeteccion(d.clase, d.confianza)}>
-                              <Popup>
-                                <div className="w-44 space-y-2 py-0.5">
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="flex items-center gap-1.5 text-sm font-semibold capitalize">
-                                      <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: colorDeClase(d.clase) }} />
-                                      {d.clase}
-                                    </span>
-                                    <span className="shrink-0 text-xs font-medium text-slate-400">{d.confianza.toFixed(0)}%</span>
-                                  </div>
-                                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-600">
-                                    <div
-                                      className="h-full rounded-full"
-                                      style={{ width: `${d.confianza}%`, background: colorDeClase(d.clase) }}
-                                    />
-                                  </div>
-                                  <p className="font-mono text-[11px] text-slate-400">
-                                    {pos.lat.toFixed(5)}, {pos.lon.toFixed(5)}
-                                  </p>
-                                </div>
-                              </Popup>
-                            </Marker>
-                          );
-                        })}
+                        {detecciones.map((d, i) => (
+                          <MarcaDeteccion key={`${d.fila}-${d.col}-${i}`} deteccion={d} meta={meta} />
+                        ))}
                       </MapContainer>
 
                       {clasesOrdenadas.length > 0 && (
                         <div className="pointer-events-none absolute bottom-3 right-3 z-[1000] max-w-[10.5rem] rounded-xl bg-white/90 p-3 text-xs shadow-lg backdrop-blur-sm dark:bg-slate-800/90">
                           <p className="mb-1.5 font-semibold text-slate-700 dark:text-slate-200">Detecciones</p>
                           <div className="space-y-1">
-                            {clasesOrdenadas.map(([clase, cantidad]) => (
+                            {clasesOrdenadas.map(({ clase, cantidad }) => (
                               <div key={clase} className="flex items-center gap-2">
                                 <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: colorDeClase(clase) }} />
                                 <span className="truncate capitalize text-slate-600 dark:text-slate-300">{clase}</span>
@@ -568,6 +636,11 @@ export default function FieldView() {
                               </div>
                             ))}
                           </div>
+                          {areaTotal > 0 && (
+                            <p className="mt-1.5 border-t border-slate-200 pt-1.5 text-slate-500 dark:border-slate-600 dark:text-slate-400">
+                              {superficie(areaTotal)} en total
+                            </p>
+                          )}
                         </div>
                       )}
                     </>
@@ -699,7 +772,7 @@ export default function FieldView() {
                           <span className="capitalize">{claseDominante}</span>
                         </p>
                       )}
-                      {clasesOrdenadas.map(([clase, cantidad]) => {
+                      {clasesOrdenadas.map(({ clase, cantidad, areaM2 }) => {
                         const pct = (cantidad / detecciones.length) * 100;
                         const color = colorDeClase(clase);
                         return (
@@ -711,6 +784,7 @@ export default function FieldView() {
                               </span>
                               <span className="text-xs text-slate-400">
                                 {cantidad} · {pct.toFixed(0)}%
+                                {areaM2 > 0 && ` · ${superficie(areaM2)}`}
                               </span>
                             </div>
                             <div className="h-2 w-full overflow-hidden rounded-full bg-slate-200 dark:bg-slate-600">
@@ -862,18 +936,9 @@ export default function FieldView() {
                             attribution="Ortomosaico"
                           />
                         )}
-                        {analisisDrawer.detecciones.map((d, i) => {
-                          const pos = posicionDeDeteccion(d, meta);
-                          return (
-                            <Marker key={`${d.fila}-${d.col}-${i}`} position={[pos.lat, pos.lon]} icon={iconoDeteccion(d.clase, d.confianza)}>
-                              <Popup>
-                                <div className="w-40 space-y-1 py-0.5 text-xs">
-                                  <span className="font-semibold capitalize">{d.clase}</span> · {d.confianza.toFixed(0)}%
-                                </div>
-                              </Popup>
-                            </Marker>
-                          );
-                        })}
+                        {analisisDrawer.detecciones.map((d, i) => (
+                          <MarcaDeteccion key={`${d.fila}-${d.col}-${i}`} deteccion={d} meta={meta} compacto />
+                        ))}
                       </MapContainer>
                     </div>
 
@@ -884,6 +949,10 @@ export default function FieldView() {
                       <span>Corrido por <strong className="text-slate-700 dark:text-slate-200">{analisisDrawer.usuario_nombre ?? "—"}</strong></span>
                       <span>Celdas <strong className="text-slate-700 dark:text-slate-200">{analisisDrawer.celdas_activas ?? 0}/{analisisDrawer.total_celdas}</strong></span>
                       <span>Detecciones <strong className="text-slate-700 dark:text-slate-200">{analisisDrawer.detecciones.length}</strong></span>
+                      {/* Solo en los análisis con contornos: de un punto no sale superficie */}
+                      {areaDrawer > 0 && (
+                        <span>Superficie <strong className="text-slate-700 dark:text-slate-200">{superficie(areaDrawer)}</strong></span>
+                      )}
                       <span className={`rounded-full px-2 py-0.5 font-medium ${ESTADO_ESTILO[analisisDrawer.estado] ?? ESTADO_ESTILO.en_progreso}`}>
                         {analisisDrawer.estado}
                       </span>
@@ -891,14 +960,16 @@ export default function FieldView() {
 
                     {clasesDrawer.length > 0 && (
                       <div className="flex flex-wrap gap-3">
-                        {clasesDrawer.map(([clase, cantidad]) => {
+                        {clasesDrawer.map(({ clase, cantidad, areaM2 }) => {
                           const pct = (cantidad / analisisDrawer.detecciones.length) * 100;
                           const color = colorDeClase(clase);
                           return (
                             <span key={clase} className="flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-xs dark:bg-slate-700">
                               <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />
                               <span className="capitalize text-slate-700 dark:text-slate-200">{clase}</span>
-                              <span className="text-slate-400">{cantidad} · {pct.toFixed(0)}%</span>
+                              <span className="text-slate-400">
+                                {cantidad} · {pct.toFixed(0)}%{areaM2 > 0 && ` · ${superficie(areaM2)}`}
+                              </span>
                             </span>
                           );
                         })}

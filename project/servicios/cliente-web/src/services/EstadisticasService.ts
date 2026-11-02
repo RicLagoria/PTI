@@ -13,6 +13,7 @@ export interface DeteccionesPorClase {
 
 export interface ModeloVersion {
   version_modelo: string;
+  /** Ya viene en porcentaje (23.4, no 0.234): no multiplicar por 100. */
   confianza_promedio: number;
   corridas: number;
   detecciones: number;

@@ -82,6 +82,8 @@ async def detectar(
 
     return {
         "version_modelo": detector.version,
+        # Con "segment" las detecciones traen contorno_local; con "detect", solo caja
+        "tarea": detector.obtener_info()["tarea"],
         "total_teselas": len(tiles_procesar),
         "detecciones": detecciones
     }

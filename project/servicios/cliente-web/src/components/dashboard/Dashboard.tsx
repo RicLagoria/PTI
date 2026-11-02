@@ -128,7 +128,7 @@ export default function Dashboard() {
     },
     {
       label: "Confianza del modelo",
-      value: modeloReciente ? `${Math.round(modeloReciente.confianza_promedio * 100)}%` : "—",
+      value: modeloReciente ? `${Math.round(modeloReciente.confianza_promedio)}%` : "—",
       sub: modeloReciente ? `Versión ${modeloReciente.version_modelo} · ${modeloReciente.corridas} corridas` : "Sin corridas con detecciones aún",
       tip: "Promedio de confianza de todas las detecciones hechas con la versión de modelo que corrió más recientemente. Si no hubo detecciones todavía, no hay nada para promediar.",
       icon: Cpu,
@@ -288,13 +288,13 @@ export default function Dashboard() {
                     <div className="flex items-center justify-between text-sm">
                       <span className="font-medium">{v.version_modelo}</span>
                       <span className="text-slate-500 dark:text-slate-400">
-                        {Math.round(v.confianza_promedio * 100)}% · {v.corridas} corridas · {v.detecciones} detecciones
+                        {Math.round(v.confianza_promedio)}% · {v.corridas} corridas · {v.detecciones} detecciones
                       </span>
                     </div>
                     <div className="mt-1 h-2 rounded-full bg-slate-100 dark:bg-slate-700">
                       <div
                         className="h-2 rounded-full bg-indigo-500"
-                        style={{ width: `${Math.min(100, Math.round(v.confianza_promedio * 100))}%` }}
+                        style={{ width: `${Math.min(100, Math.round(v.confianza_promedio))}%` }}
                       />
                     </div>
                   </div>

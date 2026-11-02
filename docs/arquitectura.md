@@ -36,10 +36,16 @@ análisis no es viable, y tampoco tiene sentido: el modelo nunca ve el raster
 completo, ve celdas de 640 px.
 
 Entonces **el plano IA no sabe nada de geografía**. Recibe imágenes y devuelve
-cajas en píxeles locales. Todo lo geoespacial —conversión a COG, teselas XYZ
-para Leaflet, la grilla de 640 px, la lectura por ventanas, el descarte de
-celdas vacías y la traducción a lat/lon— queda en `cliente-api`, que es quien
-tiene el raster y su `transform`.
+cajas y contornos en píxeles locales. Todo lo geoespacial —conversión a COG,
+teselas XYZ para Leaflet, la grilla de 640 px, la lectura por ventanas, el
+descarte de celdas vacías y la traducción a lat/lon— queda en `cliente-api`, que
+es quien tiene el raster y su `transform`.
+
+La regla aguanta el cambio de detección a segmentación sin moverse: un contorno
+es una lista de píxeles locales, igual que una caja, y se georreferencia en el
+mismo lugar y con la misma cuenta. Lo único que hizo falta del lado del cliente
+fue convertir todos los vértices de una vez en lugar de uno solo
+(`geo.pixeles_globales_a_latlon`).
 
 Esto deja al servicio de IA stateless y reusable: mañana le pega otro cliente,
 o un script, o un notebook, sin cambiarle nada.
@@ -245,11 +251,13 @@ los datasets ya subidos.
 
 ```
 GET  /salud
-GET  /modelo            → { version, clases: [...], imgsz, metricas }
+GET  /modelo            → { version, clases: [...], imgsz, tarea, metricas }
 POST /detectar?conf=0.10
        → multipart: una parte por tesela, con su `id` como nombre de la parte
-       ← { version_modelo,
-           detecciones: [{ id, clase, confianza, box_local: [x1, y1, x2, y2] }] }
+       ← { version_modelo, tarea,
+           detecciones: [{ id, clase, confianza,
+                           box_local: [x1, y1, x2, y2],
+                           contorno_local: [[x, y], ...] }] }
 ```
 
 Sin estado y sin coordenadas. El `id` es opaco para el servicio: lo devuelve tal
@@ -259,20 +267,44 @@ georreferencia"). Una tesela sin detecciones simplemente no aparece en la
 respuesta. `version_modelo` queda guardada junto a las detecciones para saber
 con qué modelo se hizo cada análisis.
 
+`tarea` es `segment` o `detect` y sale de los pesos activos, no de una
+configuración: activar otra versión en `ia-entrenamiento` lo cambia sin
+reiniciar nada. Con `segment` cada detección agrega `contorno_local`, el borde
+de la mancha ya simplificado a unas decenas de vértices (el borde crudo de una
+máscara tiene cientos, casi todos sobre la misma recta, y el contorno viaja
+hasta el navegador). La caja sigue viniendo igual: la usa quien solo quiere un
+punto, y es lo único que hay con un modelo `detect`.
+
 ### ia-entrenamiento-api
 
 ```
 GET    /clases
+GET    /dispositivos                  si se puede entrenar en GPU, y si no, qué falta
 POST   /datasets                      ZIP con imágenes + JSON de labelme
 GET    /datasets
 DELETE /datasets/{id}
-POST   /entrenamientos                { datasets, epocas, imgsz, pesos_base }
+POST   /entrenamientos                { datasets, epocas, imgsz, pesos_base, dispositivo }
 GET    /entrenamientos
 GET    /entrenamientos/{id}/stream    SSE: época, pérdidas, métricas
-GET    /modelos                       versiones con sus métricas
+GET    /modelos                       versiones con su tarea y sus métricas
 GET    /modelos/activo/pesos          descarga el .pt (para despliegue separado)
 POST   /modelos/{v}/activar
 ```
+
+Un entrenamiento tiene dos ejes, y se piden distinto a propósito:
+
+- **Qué entrena** no es un parámetro: viene con `pesos_base`. `yolov8n-seg.pt`
+  entrena contornos, `yolov8n.pt` cajas, y una versión del registro sigue
+  entrenando con su misma tarea. Es así porque el `.pt` trae la cabeza entrenada
+  para una cosa o la otra, y no se puede seguir entrenando una con las etiquetas
+  del otro formato: si la tarea fuera un campo aparte, podría contradecir a los
+  pesos y el error aparecería recién dentro de Ultralytics.
+- **Dónde entrena** sí es un parámetro, `dispositivo`: `cpu` o `gpu`.
+  `GET /dispositivos` dice si hay GPU y, si no, qué de las tres cosas que hacen
+  falta está faltando (la placa, un torch con CUDA, el acceso del contenedor al
+  dispositivo). Si se pide GPU y el worker no la tiene, el trabajo queda fallido
+  en el momento con ese motivo: entrenar en CPU "por las dudas" significaría
+  horas de cómputo que nadie pidió.
 
 ### cliente-api
 
@@ -319,8 +351,12 @@ cuadrante.
    Si las teselas viajan en JPEG, la entrada cambia y las detecciones pueden
    moverse un poco. Hay que comparar contra el monolito; si molesta, PNG o WebP
    sin pérdida (más pesado, ~3x).
-3. **Autenticación entre planos.** Un servicio de IA expuesto a internet
-   necesita al menos un token compartido por header. El login de la UI quedó
-   postergado, pero esto es distinto y no es opcional.
+3. **Autenticación entre planos.** Resuelto para `ia-entrenamiento`, que es el
+   que podía borrar aportes y cambiar el modelo activo: su API pide el JWT que
+   emite `cliente-api` y solo verifica la firma con un `JWT_SECRET` compartido,
+   sin conocer las cuentas (ver el README del servicio). Sigue abierto para
+   `ia-inferencia`, al que `cliente-api` le habla sin credenciales: ahí no hay
+   un usuario del otro lado, así que el token compartido por header es otro
+   problema y otra decisión.
 4. **Multi-cliente.** El detector stateless ya lo soporta. Falta decidir si el
    registro de modelos es único o por cliente.

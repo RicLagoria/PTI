@@ -5,7 +5,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button, Chip, Modal, ModalBody, ModalContent, ModalFooter, ModalHeader, Progress } from "@heroui/react";
 import { ArrowRight, Ban, Clock, XCircle } from "lucide-react";
-import { cancelarEntrenamiento, type EstadoTrabajo, type Trabajo } from "../../services/EntrenamientoService";
+import { cancelarEntrenamiento, ETIQUETA_TAREA, type EstadoTrabajo, type Trabajo } from "../../services/EntrenamientoService";
 import { useCuentaRegresiva } from "../../hooks/useCuentaRegresiva";
 import { duracion, fecha, horaDentroDe, numero, plural, porcentaje } from "../../utils/formato";
 import Metrica from "../comunes/Metrica";
@@ -81,6 +81,10 @@ export default function TarjetaTrabajo({
 }) {
   const estado = ESTADOS[trabajo.estado];
   const m = trabajo.metricas ?? {};
+  // Corrió menos épocas de las pedidas: cortó el early stopping. Sin decirlo,
+  // "150 épocas" en la línea de arriba y 94 épocas en la curva no cierran
+  const cortoAntes =
+    !!trabajo.paciencia && m.epocas_entrenadas !== undefined && m.epocas_entrenadas < trabajo.epocas;
   const activo = trabajo.estado === "pendiente" || trabajo.estado === "ejecutando";
 
   const [confirmando, setConfirmando] = useState(false);
@@ -109,6 +113,9 @@ export default function TarjetaTrabajo({
           </p>
           <p className="text-xs text-slate-500 dark:text-slate-400">
             {fecha(trabajo.fecha_creacion)} · {trabajo.epocas} épocas · imgsz {trabajo.imgsz} · desde {trabajo.pesos_base}
+            {trabajo.tarea && ` · ${ETIQUETA_TAREA[trabajo.tarea].toLowerCase()}`}
+            {trabajo.dispositivo && ` · en ${trabajo.dispositivo.toUpperCase()}`}
+            {!!trabajo.paciencia && ` · paciencia ${trabajo.paciencia}`}
             {trabajo.fraccion_validacion !== undefined && ` · valida ${Math.round(trabajo.fraccion_validacion * 100)} %`}
             {trabajo.intentos !== undefined && trabajo.intentos > 1 && ` · intento ${trabajo.intentos} (el worker anterior dejó de responder)`}
             {trabajo.worker && trabajo.worker !== "cancelado" && (
@@ -166,7 +173,13 @@ export default function TarjetaTrabajo({
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <Metrica etiqueta="Pérdida" valor={numero(m.perdida, 3)} detalle={`época ${trabajo.progreso_epocas}`} />
               <Metrica etiqueta="mAP50-95" valor={porcentaje(m.map50_95)} />
-              <Metrica etiqueta="mAP50" valor={porcentaje(m.map50)} />
+              {/* En segmentación lo que importa es si el contorno sigue a la
+                  mancha, no solo si la encuentra: esa es la métrica de máscara */}
+              {m.map50_95_mascara !== undefined ? (
+                <Metrica etiqueta="mAP50-95 máscara" valor={porcentaje(m.map50_95_mascara)} />
+              ) : (
+                <Metrica etiqueta="mAP50" valor={porcentaje(m.map50)} />
+              )}
               <Metrica etiqueta="Recall" valor={porcentaje(m.recall)} />
             </div>
           )}
@@ -178,6 +191,13 @@ export default function TarjetaTrabajo({
           <p>
             Publicó <span className="font-mono font-semibold">{trabajo.version_generada}</span> · mAP50-95{" "}
             <span className="font-semibold">{porcentaje(m.map50_95)}</span> (mejor época {m.epoca_mejor ?? "—"})
+            {cortoAntes && (
+              <>
+                {" "}
+                · cortó en la época {m.epocas_entrenadas} de {trabajo.epocas}, porque el mAP no mejoró en{" "}
+                {plural(trabajo.paciencia ?? 0, "época")}
+              </>
+            )}
           </p>
           <Link
             to={`/modelos/${encodeURIComponent(trabajo.version_generada ?? "")}`}

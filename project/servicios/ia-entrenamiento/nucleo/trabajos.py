@@ -121,8 +121,11 @@ def encolar_trabajo(
     datasets: List[str],
     epocas: int = 50,
     imgsz: int = 640,
-    pesos_base: str = "yolov8n.pt",
+    pesos_base: str = "yolov8n-seg.pt",
     fraccion_validacion: float = 0.25,
+    tarea: str = "segment",
+    dispositivo: str = "cpu",
+    paciencia: int = 0,
 ) -> Dict:
     TRABAJOS_DIR.mkdir(parents=True, exist_ok=True)
     trabajo_id = uuid.uuid4().hex[:12]
@@ -139,6 +142,14 @@ def encolar_trabajo(
         "imgsz": imgsz,
         "pesos_base": pesos_base,
         "fraccion_validacion": fraccion_validacion,
+        # "detect" (cajas) o "segment" (contornos); sale de los pesos de partida
+        "tarea": tarea,
+        # "cpu" o "gpu". El worker lo resuelve al arrancar y falla en el momento
+        # si pidió GPU y no la tiene (ver dispositivos.resolver)
+        "dispositivo": dispositivo,
+        # Épocas seguidas sin mejorar antes de cortar (early stopping). 0 lo
+        # desactiva y entrena las `epocas` completas
+        "paciencia": paciencia,
         "progreso_epocas": 0,
         "metricas": {},
         "version_generada": None,

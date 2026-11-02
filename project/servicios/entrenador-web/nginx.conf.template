@@ -1,0 +1,45 @@
+# Plantilla, no configuración final: la imagen de nginx corre envsubst sobre
+# /etc/nginx/templates/*.template al arrancar y escribe el resultado en
+# /etc/nginx/conf.d/. Es un archivo .template y no un .conf porque CLIENTE_API_URL
+# cambia según dónde esté el plano Cliente, que puede ser otra máquina.
+# NGINX_ENVSUBST_FILTER (en el Dockerfile) limita la sustitución a esa variable;
+# sin ese filtro, envsubst también se comería $uri y $host y la config saldría rota.
+server {
+    listen 80;
+
+    # El tope de los ZIP de aportes lo aplica la API (MAX_DATASET_MB)
+    client_max_body_size 0;
+
+    location / {
+        root /usr/share/nginx/html;
+        index index.html;
+        # SPA con react-router: cualquier ruta que no sea un archivo cae en index.html
+        try_files $uri $uri/ /index.html;
+    }
+
+    # El login no lo atiende el plano IA: las cuentas son las del sitio de
+    # análisis y las valida cliente-api, que es quien tiene la base. Se proxya
+    # desde acá para que en el navegador sea el mismo origen que /api (si no,
+    # el front tendría que pegarle a otro host y habría CORS de por medio).
+    # ia-entrenamiento-api solo verifica la firma del token que emite allá.
+    location /auth/ {
+        proxy_pass ${CLIENTE_API_URL}/auth/;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+    }
+
+    location /api/ {
+        proxy_pass http://ia-entrenamiento-api:8002/;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+
+        # Aportes: pasar el ZIP a la API a medida que llega, sin copiarlo antes a disco
+        proxy_request_buffering off;
+        # Progreso del entrenamiento (SSE): entregar cada evento apenas sale de la API
+        proxy_buffering off;
+
+        # Convertir un aporte grande puede tardar varios minutos sin enviar datos
+        proxy_read_timeout 3600s;
+        proxy_send_timeout 3600s;
+    }
+}

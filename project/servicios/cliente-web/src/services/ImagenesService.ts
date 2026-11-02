@@ -24,6 +24,16 @@ export interface Deteccion {
   box_local?: number[];
   box_global_px: number[];
   gps_centro: { lat: number; lon: number };
+  /**
+   * Borde de la mancha detectada, como [[lat, lon], ...] listo para Leaflet.
+   * Solo viene cuando el análisis corrió con un modelo de segmentación: uno de
+   * detección da nada más que la caja, y entonces se dibuja un marcador.
+   */
+  contorno?: [number, number][];
+  /** El mismo contorno en píxeles del ortomosaico. Lo usa el informe en PDF. */
+  contorno_global_px?: number[][];
+  /** Superficie del contorno en metros cuadrados. Va junto con `contorno`. */
+  area_m2?: number;
 }
 
 export interface ChunkAnalisis {

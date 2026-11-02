@@ -1,9 +1,9 @@
 import json
 import os
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
@@ -154,11 +154,31 @@ def obtener_metadata(imagen_id: str, usuario=Depends(auth.usuario_actual)):
 # ==========================================================
 # 4. STREAMING DE DETECCIONES (SSE)
 # ==========================================================
+def _escalas(texto: str) -> List[int]:
+    """
+    "4,1" -> [4, 1]. Se conserva el orden, que es el de las pasadas, y se
+    sacan las repetidas: pedir la misma escala dos veces recorrería el campo dos
+    veces para encontrar lo mismo.
+    """
+    vistas, salida = set(), []
+    for parte in texto.split(","):
+        n = int(parte)
+        if n not in vistas:
+            vistas.add(n)
+            salida.append(n)
+    return salida or [1]
+
+
 @app.get("/imagenes/{imagen_id}/analizar-stream")
 def analizar_campo_stream(
     imagen_id: str,
     cuadrante: Optional[int] = None,
     conf: float = 0.10,
+    # Las pasadas, en orden, separadas por coma. 1 lee celdas de imgsz px del
+    # raster y 4 lee celdas de 4*imgsz reducidas a imgsz, o sea 16 veces más
+    # campo por celda. "4,1" primero se aleja, para que las manchas más grandes
+    # que una celda entren enteras, y después se acerca para las chicas.
+    escalas: str = Query("1", pattern=r"^[1-8](,[1-8])*$"),
     carpeta=Depends(carpeta_imagen),
     usuario=Depends(auth.usuario_actual),
 ):
@@ -173,7 +193,8 @@ def analizar_campo_stream(
                 ortomosaico_id=imagen_id,
                 usuario_id=usuario["id"],
                 cuadrante=cuadrante,
-                conf=conf
+                conf=conf,
+                escalas=_escalas(escalas)
             ):
                 yield f"data: {json.dumps(chunk)}\n\n"
         except Exception as e:
@@ -195,6 +216,11 @@ def analizar_campo_completo(
     imagen_id: str,
     cuadrante: Optional[int] = None,
     conf: float = 0.10,
+    # Las pasadas, en orden, separadas por coma. 1 lee celdas de imgsz px del
+    # raster y 4 lee celdas de 4*imgsz reducidas a imgsz, o sea 16 veces más
+    # campo por celda. "4,1" primero se aleja, para que las manchas más grandes
+    # que una celda entren enteras, y después se acerca para las chicas.
+    escalas: str = Query("1", pattern=r"^[1-8](,[1-8])*$"),
     carpeta=Depends(carpeta_imagen),
     usuario=Depends(auth.usuario_actual),
 ):
@@ -205,7 +231,8 @@ def analizar_campo_completo(
         ortomosaico_id=imagen_id,
         usuario_id=usuario["id"],
         cuadrante=cuadrante,
-        conf=conf
+        conf=conf,
+        escalas=_escalas(escalas)
     ):
         resultado_final = chunk
 
@@ -273,6 +300,7 @@ def exportar_pdf(imagen_id: str, analisis_id: int, usuario=Depends(auth.usuario_
         analisis=analisis,
         detecciones=detecciones,
         usuario_nombre=analisis.get("usuario_nombre"),
+        superficies=datos.superficie_real(analisis_id),
     )
     return Response(
         content=pdf_bytes,
