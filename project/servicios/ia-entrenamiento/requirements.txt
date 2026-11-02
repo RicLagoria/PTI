@@ -5,6 +5,9 @@ starlette==0.49.3
 pydantic==2.13.4
 python-multipart>=0.0.9
 pyyaml>=6.0.1
+# Solo para verificar la firma de los tokens que emite cliente-api (api/auth.py).
+# No hace falta psycopg ni bcrypt: este servicio no conoce las cuentas.
+pyjwt==2.10.1
 
 # --- Entrenamiento e IA ---
 ultralytics==8.4.121

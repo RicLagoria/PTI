@@ -13,6 +13,12 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ''),
       },
+      // El login lo valida cliente-api, no el plano IA: acá se mantiene el
+      // prefijo porque sus endpoints ya se llaman /auth/login y /auth/yo.
+      '/auth': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
     },
   },
 })

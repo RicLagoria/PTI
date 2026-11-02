@@ -7,14 +7,18 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import FastAPI, File, Form, HTTPException, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 # Permitir importar desde nucleo
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "nucleo"))
+# Y los módulos de al lado: se corre como "uvicorn api.server:app" desde la
+# raíz del servicio, así que api/ no está en el path por sí solo.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import auth
 import clases
 import datasets
 import dispositivos
@@ -43,9 +47,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="AgroVision - IA Entrenamiento API", version="1.0.0", lifespan=lifespan)
 
+# Antes aceptaba cualquier origen ("*"). Con login de por medio se restringe,
+# igual que en cliente-api: ENTRENADOR_ORIGIN apunta a donde vive
+# entrenador-web (separar varios con coma). En Docker y en "npm run dev" el
+# front le habla a la API por su propio proxy, así que es el mismo origen y
+# esto no entra en juego; importa si alguien la consume desde otra página.
+_origenes = os.environ.get("ENTRENADOR_ORIGIN", "http://localhost:8003").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[o.strip() for o in _origenes if o.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -88,13 +98,13 @@ def salud():
 
 
 @app.get("/clases")
-def listar_clases():
+def listar_clases(usuario=Depends(auth.usuario_actual)):
     """Retorna la taxonomía canónica de clases."""
     return clases.obtener_clases_canonicas()
 
 
 @app.get("/dispositivos")
-def listar_dispositivos():
+def listar_dispositivos(usuario=Depends(auth.usuario_actual)):
     """
     Si se puede entrenar en GPU acá, y si no, por qué. entrenador-web lo usa
     para habilitar la opción; ver el docstring de nucleo/dispositivos.py sobre
@@ -104,7 +114,7 @@ def listar_dispositivos():
 
 
 @app.get("/datasets")
-def listar_datasets():
+def listar_datasets(usuario=Depends(auth.usuario_actual)):
     return datasets.listar_datasets()
 
 
@@ -118,6 +128,7 @@ def subir_dataset(
     # Apagado por defecto: declarar fondo una imagen que nadie miró le enseña al
     # modelo que la maleza que hay ahí no es maleza. Lo pide quien sube.
     fondos_implicitos: bool = Form(False),
+    usuario=Depends(auth.usuario_actual),
 ):
     if not (archivo.filename or "").lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="El dataset debe ser un archivo ZIP.")
@@ -152,14 +163,14 @@ def subir_dataset(
 
 
 @app.delete("/datasets/{id}", status_code=204)
-def eliminar_dataset(id: str):
+def eliminar_dataset(id: str, usuario=Depends(auth.usuario_actual)):
     if not datasets.eliminar_dataset(id):
         raise HTTPException(status_code=404, detail="Dataset no encontrado.")
     return Response(status_code=204)
 
 
 @app.get("/datasets/{id}/ventanas")
-def ventanas_disponibles(id: str):
+def ventanas_disponibles(id: str, usuario=Depends(auth.usuario_actual)):
     """Cuántas ventanas completas daría cada escala, para ofrecer solo las que sirven."""
     if datasets.carpeta_de(id) is None:
         raise HTTPException(status_code=404, detail="Dataset no encontrado.")
@@ -169,7 +180,7 @@ def ventanas_disponibles(id: str):
 # Sin async, igual que la subida: pega y reescribe una imagen por ventana, y en
 # un endpoint async bloquearía el event loop mientras dura.
 @app.post("/datasets/{id}/ventanas", status_code=201)
-def generar_ventanas(id: str, solicitud: SolicitudVentanas):
+def generar_ventanas(id: str, solicitud: SolicitudVentanas, usuario=Depends(auth.usuario_actual)):
     """
     Deriva un aporte de escala gruesa por cada escala pedida.
 
@@ -185,12 +196,12 @@ def generar_ventanas(id: str, solicitud: SolicitudVentanas):
 
 
 @app.get("/entrenamientos")
-def listar_entrenamientos():
+def listar_entrenamientos(usuario=Depends(auth.usuario_actual)):
     return trabajos.listar_trabajos()
 
 
 @app.post("/entrenamientos", status_code=202)
-def crear_entrenamiento(solicitud: SolicitudEntrenamiento):
+def crear_entrenamiento(solicitud: SolicitudEntrenamiento, usuario=Depends(auth.usuario_actual)):
     ids = list(dict.fromkeys(solicitud.datasets))
     inexistentes = [i for i in ids if datasets.carpeta_de(i) is None]
     if inexistentes:
@@ -252,7 +263,7 @@ def crear_entrenamiento(solicitud: SolicitudEntrenamiento):
 
 
 @app.get("/entrenamientos/{id}/stream")
-async def stream_entrenamiento(id: str):
+async def stream_entrenamiento(id: str, usuario=Depends(auth.usuario_actual)):
     trabajo = trabajos.obtener_trabajo(id)
     if not trabajo:
         raise HTTPException(status_code=404, detail="Trabajo de entrenamiento no encontrado.")
@@ -274,7 +285,7 @@ async def stream_entrenamiento(id: str):
 
 
 @app.post("/entrenamientos/{id}/cancelar")
-def cancelar_entrenamiento(id: str):
+def cancelar_entrenamiento(id: str, usuario=Depends(auth.usuario_actual)):
     """
     Pendiente: se cancela en el momento. En ejecución: el worker corta en el próximo
     lote y no publica ninguna versión (mientras tanto el trabajo trae
@@ -289,12 +300,12 @@ def cancelar_entrenamiento(id: str):
 
 
 @app.get("/modelos")
-def listar_modelos():
+def listar_modelos(usuario=Depends(auth.usuario_actual)):
     return registro.listar_modelos()
 
 
 @app.get("/modelos/activo/pesos")
-def descargar_pesos_activos():
+def descargar_pesos_activos(usuario=Depends(auth.usuario_actual)):
     ruta = registro.ruta_pesos_activos()
     if not ruta or not ruta.is_file():
         raise HTTPException(status_code=404, detail="No hay pesos de modelo activo disponibles.")
@@ -306,7 +317,7 @@ def descargar_pesos_activos():
 
 
 @app.get("/modelos/{v}/detalle")
-def detalle_modelo(v: str):
+def detalle_modelo(v: str, usuario=Depends(auth.usuario_actual)):
     """Evaluación sobre validación, historial por época y gráficos disponibles."""
     detalle = registro.leer_detalle(v)
     if detalle is None:
@@ -315,7 +326,7 @@ def detalle_modelo(v: str):
 
 
 @app.get("/modelos/{v}/imagenes/{nombre}")
-def imagen_modelo(v: str, nombre: str):
+def imagen_modelo(v: str, nombre: str, usuario=Depends(auth.usuario_actual)):
     ruta = registro.ruta_imagen(v, nombre)
     if ruta is None:
         raise HTTPException(status_code=404, detail="Imagen no encontrada.")
@@ -323,7 +334,7 @@ def imagen_modelo(v: str, nombre: str):
 
 
 @app.post("/modelos/{v}/activar")
-def activar_modelo(v: str):
+def activar_modelo(v: str, usuario=Depends(auth.usuario_actual)):
     exito = registro.activar_modelo(v)
     if not exito:
         raise HTTPException(status_code=404, detail=f"No se encontró la versión {v} o no tiene pesos válidos.")

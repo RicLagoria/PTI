@@ -6,18 +6,22 @@ RUN apt-get update \
 
 WORKDIR /app
 
-# Variante de torch: "cpu" (por defecto) o una CUDA como "cu128". Las ruedas de
-# CUDA se traen las librerías de NVIDIA y suman varios GB a la imagen, así que
-# solo se construye así la imagen del worker que va a entrenar en GPU:
-#   docker compose -f compose.ia.yml -f compose.ia.gpu.yml build
+# Variante de torch: "cpu" (por defecto acá) o una CUDA como "cu128". Las ruedas
+# de CUDA se traen las librerías de NVIDIA y suman varios GB a la imagen.
+# compose.ia.yml pasa cu128, que es lo que hace falta para entrenar en GPU; para
+# una máquina sin placa NVIDIA está el override que vuelve a "cpu":
+#   docker compose -f compose.ia.yml -f compose.ia.cpu.yml build
 # Cada variante es un índice de PyPI aparte y el número de versión lleva la
 # variante como sufijo local ("2.8.0+cu128"), que requirements.txt igual acepta.
 ARG VARIANTE_TORCH=cpu
 
-COPY requirements.txt .
+# torch antes de copiar requirements.txt, y en su propia capa: así tocar
+# requirements.txt no vuelve a descargar las ruedas de CUDA, que son varios GB.
 RUN pip install --no-cache-dir --extra-index-url https://download.pytorch.org/whl/${VARIANTE_TORCH} \
-        torch==2.8.0+${VARIANTE_TORCH} torchvision==0.23.0+${VARIANTE_TORCH} \
-    && pip install --no-cache-dir -r requirements.txt
+        torch==2.8.0+${VARIANTE_TORCH} torchvision==0.23.0+${VARIANTE_TORCH}
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY nucleo/ nucleo/
 COPY api/ api/

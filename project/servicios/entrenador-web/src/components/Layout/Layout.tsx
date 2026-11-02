@@ -2,10 +2,21 @@
 // src/components/Layout/Layout.tsx
 // =====================================
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { Navbar, NavbarBrand, NavbarContent, NavbarItem, Chip } from "@heroui/react";
+import {
+  Navbar,
+  NavbarBrand,
+  NavbarContent,
+  NavbarItem,
+  Chip,
+  Dropdown,
+  DropdownTrigger,
+  DropdownMenu,
+  DropdownItem,
+} from "@heroui/react";
 import { motion } from "framer-motion";
 import { useTheme } from "next-themes";
-import { BrainCircuit, FolderUp, Leaf, Moon, Sun, Boxes } from "lucide-react";
+import { BrainCircuit, ChevronDown, FolderUp, Leaf, LogOut, Moon, Sun, Boxes, UserCircle2 } from "lucide-react";
+import { useSesion } from "../../context/sesion";
 
 const tabs = [
   {
@@ -31,6 +42,7 @@ const tabs = [
 export default function Layout() {
   const location = useLocation();
   const { resolvedTheme, setTheme } = useTheme();
+  const { perfil, cerrarSesion } = useSesion();
   // /modelos/v_123 cuenta como el tab Modelos
   const tabActiva =
     tabs.find((tab) => tab.path === location.pathname || (tab.path !== "/" && location.pathname.startsWith(`${tab.path}/`))) ?? tabs[0];
@@ -83,6 +95,48 @@ export default function Layout() {
               {oscuro ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
           </NavbarItem>
+
+          {/* Quién sos + cerrar sesión en un solo menú, igual que en cliente-web:
+              la navbar ya tiene tres tabs y el botón de tema, y dos controles
+              sueltos más no entran en un celular. */}
+          {perfil && (
+            <NavbarItem>
+              <Dropdown placement="bottom-end">
+                <DropdownTrigger>
+                  <button
+                    type="button"
+                    className="flex items-center gap-2 rounded-xl py-1 pl-1 pr-2 transition-colors hover:bg-slate-100 dark:hover:bg-slate-700"
+                  >
+                    {perfil.avatar_url ? (
+                      <img
+                        src={perfil.avatar_url}
+                        alt={perfil.nombre_completo}
+                        className="h-8 w-8 rounded-full border border-slate-200 object-cover dark:border-slate-600"
+                      />
+                    ) : (
+                      <UserCircle2 className="h-8 w-8 text-slate-400" />
+                    )}
+                    <span className="hidden text-sm font-semibold lg:inline">{perfil.nombre_completo}</span>
+                    <ChevronDown className="h-4 w-4 text-slate-400" />
+                  </button>
+                </DropdownTrigger>
+                <DropdownMenu aria-label="Menú de usuario">
+                  <DropdownItem key="rol" isReadOnly textValue="rol" description={`@${perfil.username}`} className="cursor-default">
+                    <span className="font-semibold capitalize">{perfil.rol}</span>
+                  </DropdownItem>
+                  <DropdownItem
+                    key="salir"
+                    color="danger"
+                    className="text-danger"
+                    startContent={<LogOut className="h-4 w-4" />}
+                    onPress={cerrarSesion}
+                  >
+                    Cerrar sesión
+                  </DropdownItem>
+                </DropdownMenu>
+              </Dropdown>
+            </NavbarItem>
+          )}
         </NavbarContent>
       </Navbar>
 

@@ -2,7 +2,11 @@
 // src/services/EntrenamientoService.ts
 // =====================================
 // Cliente de ia-entrenamiento-api (contratos/ia-entrenamiento.openapi.yaml).
+// Todos los endpoints piden el token que emitió cliente-api al loguearse: va en
+// el header Authorization, salvo en los dos casos que no pueden mandar headers
+// (ver conTokenEnUrl en AuthService).
 import ApiConfig from "../config/apiConfig";
+import { conTokenEnUrl, headerAuth, sesionCaida } from "./AuthService";
 
 export interface Dataset {
   id: string;
@@ -284,11 +288,20 @@ function errorDesdeRespuesta(cuerpo: unknown, mensajeDefault: string): ErrorApi 
 async function pedir<T>(ruta: string, mensajeDefault: string, opciones?: RequestInit): Promise<T> {
   let res: Response;
   try {
-    res = await fetch(`${ApiConfig.baseURL}${ruta}`, opciones);
+    res = await fetch(`${ApiConfig.baseURL}${ruta}`, {
+      ...opciones,
+      // Los headers de cada pedido (el Content-Type de los POST) se suman a
+      // este objeto en vez de reemplazarlo, que es lo que pasaría si se dejara
+      // opciones.headers tal cual: el Authorization quedaría afuera.
+      headers: { ...headerAuth(), ...(opciones?.headers as Record<string, string> | undefined) },
+    });
   } catch {
     throw new ErrorApi("No hay conexión con ia-entrenamiento-api.");
   }
   if (!res.ok) {
+    // Token vencido, o los dos planos con JWT_SECRET distinto: volver al login
+    // en vez de mostrar el error en una pantalla que ya no va a poder cargar.
+    if (res.status === 401) sesionCaida();
     let cuerpo: unknown = null;
     try {
       cuerpo = await res.json();
@@ -343,8 +356,11 @@ export const activarModelo = (version: string) =>
 export const obtenerDetalleModelo = (version: string) =>
   pedir<DetalleModelo>(`/modelos/${encodeURIComponent(version)}/detalle`, "No se pudo obtener la evaluación del modelo.");
 
+/** Va en un <img src>, que no manda headers: el token viaja como query param. */
 export const urlImagenModelo = (version: string, nombre: string) =>
-  `${ApiConfig.baseURL}/modelos/${encodeURIComponent(version)}/imagenes/${encodeURIComponent(nombre)}`;
+  conTokenEnUrl(
+    `${ApiConfig.baseURL}/modelos/${encodeURIComponent(version)}/imagenes/${encodeURIComponent(nombre)}`
+  );
 
 /**
  * Cuántas imágenes de un aporte van a validación. Misma cuenta que
@@ -373,6 +389,8 @@ export function subirDataset(
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", `${ApiConfig.baseURL}/datasets`);
+    // XHR sí puede mandar headers; hay que setearlos después del open().
+    for (const [clave, valor] of Object.entries(headerAuth())) xhr.setRequestHeader(clave, valor);
 
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) onProgreso(Math.round((e.loaded / e.total) * 100));
@@ -387,7 +405,10 @@ export function subirDataset(
         // respuesta sin JSON (por ejemplo, un 502 de nginx)
       }
       if (xhr.status === 201) resolve(cuerpo as Dataset);
-      else reject(errorDesdeRespuesta(cuerpo, `La API respondió ${xhr.status} al subir el aporte.`));
+      else {
+        if (xhr.status === 401) sesionCaida();
+        reject(errorDesdeRespuesta(cuerpo, `La API respondió ${xhr.status} al subir el aporte.`));
+      }
     };
     xhr.onerror = () => reject(new ErrorApi("Se perdió la conexión con el servidor."));
 
@@ -403,13 +424,17 @@ export function subirDataset(
  * Sigue un entrenamiento por SSE. La API manda el trabajo completo cada 2 s y
  * corta el stream al terminar; hay que cerrar el EventSource en ese momento
  * porque si no el navegador reconecta solo y vuelve a pedir el stream.
+ *
+ * EventSource no manda headers, así que el token va en la URL. Tampoco deja ver
+ * el código de respuesta: si el token está vencido, esto llega como onCorte()
+ * igual que una caída de red, y el 401 lo descubre el siguiente pedido normal.
  */
 export function seguirTrabajo(
   id: string,
   onCambio: (trabajo: Trabajo) => void,
   onCorte: () => void
 ): EventSource {
-  const es = new EventSource(`${ApiConfig.baseURL}/entrenamientos/${id}/stream`);
+  const es = new EventSource(conTokenEnUrl(`${ApiConfig.baseURL}/entrenamientos/${id}/stream`));
   es.onmessage = (event) => {
     const trabajo: Trabajo = JSON.parse(event.data);
     onCambio(trabajo);

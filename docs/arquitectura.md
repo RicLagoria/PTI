@@ -351,8 +351,12 @@ cuadrante.
    Si las teselas viajan en JPEG, la entrada cambia y las detecciones pueden
    moverse un poco. Hay que comparar contra el monolito; si molesta, PNG o WebP
    sin pérdida (más pesado, ~3x).
-3. **Autenticación entre planos.** Un servicio de IA expuesto a internet
-   necesita al menos un token compartido por header. El login de la UI quedó
-   postergado, pero esto es distinto y no es opcional.
+3. **Autenticación entre planos.** Resuelto para `ia-entrenamiento`, que es el
+   que podía borrar aportes y cambiar el modelo activo: su API pide el JWT que
+   emite `cliente-api` y solo verifica la firma con un `JWT_SECRET` compartido,
+   sin conocer las cuentas (ver el README del servicio). Sigue abierto para
+   `ia-inferencia`, al que `cliente-api` le habla sin credenciales: ahí no hay
+   un usuario del otro lado, así que el token compartido por header es otro
+   problema y otra decisión.
 4. **Multi-cliente.** El detector stateless ya lo soporta. Falta decidir si el
    registro de modelos es único o por cliente.

@@ -25,15 +25,21 @@ services:
       MODELOS_DIR: /datos/modelos
       DATASETS_DIR: /datos/datasets
       TRABAJOS_DIR: /datos/trabajos
+      # La API exige el token que emite cliente-api al loguearse y solo verifica
+      # su firma: no conoce las cuentas ni habla con la base. Tiene que ser el
+      # MISMO valor que el JWT_SECRET del plano Cliente, o el login del navegador
+      # va a salir bien y después todo pedido va a responder 401.
+      JWT_SECRET: ${JWT_SECRET:-agrovision-dev-secret-cambiar-en-produccion}
+      ENTRENADOR_ORIGIN: "${ENTRENADOR_ORIGIN:-http://localhost:8003}"
     volumes:
       - ../datos/modelos:/datos/modelos
       - ../datos/datasets:/datos/datasets
       - ../datos/trabajos:/datos/trabajos
       - ../contratos:/contratos:ro
-    # Sin login, la API permite borrar aportes y cambiar el modelo activo: desde
-    # afuera se llega solo a través de entrenador-web (su nginx usa la red interna
-    # de compose). El puerto queda atado a 127.0.0.1 para "npm run dev" en la misma
-    # máquina o un túnel SSH al servidor, no para la red.
+    # La API ya pide login, pero el puerto sigue atado a 127.0.0.1: desde afuera
+    # se llega a través de entrenador-web (su nginx usa la red interna de
+    # compose) y esto queda para "npm run dev" en la misma máquina o un túnel
+    # SSH al servidor, no para la red.
     ports:
       - "127.0.0.1:8002:8002"
     restart: unless-stopped
@@ -76,6 +82,17 @@ services:
 
   entrenador-web:
     build: ../project/servicios/entrenador-web
+    environment:
+      # A dónde manda su nginx el /auth del login. cliente-api es del otro plano,
+      # así que no está en esta red de compose: el default apunta al puerto que
+      # publica en el host, que cubre el caso de los dos planos en una misma
+      # máquina (y el de desarrollo, donde el plano Cliente se levanta con
+      # compose.dev.yml, o sea otro proyecto de compose y otra red). Si el plano
+      # Cliente está en otro servidor, va su URL acá.
+      CLIENTE_API_URL: "${CLIENTE_API_URL:-http://host.docker.internal:8000}"
+    # Lo que hace que host.docker.internal resuelva al host en Linux.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "8003:80"
     depends_on:

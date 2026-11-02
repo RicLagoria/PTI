@@ -13,10 +13,10 @@ El sistema se está partiendo en tres planos desplegables por separado (IA, Clie
 **El código vigente está en `project/servicios/`** y ya corre completo con Docker (ver "Comandos de la arquitectura nueva"):
 
 - `ia-inferencia` — FastAPI. `POST /detectar` recibe un lote de teselas y devuelve las cajas y, con un modelo de segmentación, el contorno de cada mancha (`contorno_local`); carga `datos/modelos/activo/best.pt` en cada pedido, así que activar otra versión no requiere reiniciarlo. `GET /modelo` informa `tarea` (`segment` o `detect`), que sale del `.pt`.
-- `ia-entrenamiento` — una imagen, dos comandos: la API (aportes de labelme, entrenamientos con progreso por SSE, registro de versiones) y el worker, que se puede escalar a varias réplicas. Con el registro vacío siembra `semilla/train-3` como modelo activo. Entrena contornos o cajas y en CPU o GPU (ver "Tareas y dispositivo"). Detalle en su README.
-- `cliente-api` — FastAPI con login real (JWT contra PostgreSQL). Dueño de los ortomosaicos y de todo lo geoespacial; para analizar manda lotes de teselas a `ia-inferencia` y georreferencia lo que vuelve, contornos incluidos (`georref.py`).
+- `ia-entrenamiento` — una imagen, dos comandos: la API (aportes de labelme, entrenamientos con progreso por SSE, registro de versiones; todo con autenticación salvo `GET /salud`) y el worker, que se puede escalar a varias réplicas. Con el registro vacío siembra `semilla/train-3` como modelo activo. Entrena contornos o cajas y en CPU o GPU (ver "Tareas y dispositivo"). Detalle en su README.
+- `cliente-api` — FastAPI con login real (JWT contra PostgreSQL). Dueño de las cuentas: emite los tokens que usan los dos fronts, el de análisis y el del entrenador. Dueño también de los ortomosaicos y de todo lo geoespacial; para analizar manda lotes de teselas a `ia-inferencia` y georreferencia lo que vuelve, contornos incluidos (`georref.py`).
 - `cliente-web` — React + Leaflet: el front del MVP, con el login conectado a `cliente-api`. Dibuja un `Polygon` por detección con contorno y cae al marcador cuando no lo hay.
-- `entrenador-web` — React: subir aportes, entrenar (eligiendo contornos/cajas y CPU/GPU) y activar versiones. No tiene login ni backend propio; habla directo con la API de `ia-entrenamiento`.
+- `entrenador-web` — React: subir aportes, entrenar (eligiendo contornos/cajas y CPU/GPU) y activar versiones. No tiene backend propio; habla directo con la API de `ia-entrenamiento`. **Tiene login, con las mismas cuentas que `cliente-web`**: su nginx reenvía `/auth` a `cliente-api`, que es quien las valida (ver "El login del entrenador").
 - `base-datos` — esquema de PostgreSQL + PostGIS en `init/`, que Postgres corre **una sola vez** al crear el volumen: `01_esquema.sql` (tabla `usuarios`), `02_analisis.sql` (`ortomosaicos`, `analisis`, `detecciones`), `03_segmentacion.sql` (el contorno de cada detección), `04_escala.sql` (a qué escala corrió cada análisis) y `05_cascada.sql` (varias pasadas por análisis; reemplaza la columna de 04). Sobre una base que ya existe hay que aplicar los archivos nuevos a mano, son idempotentes; ver su README. Las cuentas del equipo se cargan con `cliente-api/app/crear_usuarios.py`.
 
 Compartido y despliegue:
@@ -25,6 +25,32 @@ Compartido y despliegue:
 - `despliegue/` — un compose por plano (`compose.ia.yml`, `compose.cliente.yml`), `compose.dev.yml` con todo en una máquina salvo el entrenamiento, y `compose.ia.cpu.yml`, un override de `compose.ia.yml` para una máquina sin placa NVIDIA. **`compose.ia.yml` construye con CUDA y reserva la GPU por defecto**, porque entrenar en CPU sigue disponible desde esa misma imagen y lo que no se puede deshacer en caliente es lo otro. Los volúmenes viven en `datos/`, en la raíz del repo e ignorado por git.
 - `project/compartido/py-geo` — la lectura del raster de `geo.py` como paquete. `cliente-api` no usa este: instala su propia copia (`cliente-api/py-geo`), que ya difiere — entre otras cosas, `pixeles_globales_a_latlon` (reproyección de muchos puntos de una vez, para los vértices de un contorno) está solo en la de `cliente-api`.
 - `project/compartido/ts-api` — pensado para tipos generados desde los contratos; hoy tiene tipos escritos a mano, desactualizados, que ningún front importa.
+
+### El login del entrenador
+
+`entrenador-web` reutiliza las cuentas de `cliente-web` (la tabla `usuarios`),
+pero **el plano IA no las conoce**: valida contra `cliente-api` y en
+`ia-entrenamiento` solo se verifica la firma del token (`api/auth.py`, con
+`pyjwt` y nada más — sin `psycopg`, sin `bcrypt`, sin `DATABASE_URL`). Es la
+misma regla que ordena lo geoespacial: el plano IA no se mete con lo que es del
+plano Cliente.
+
+Tres cosas que se desprenden de eso y conviene saber antes de tocarlo:
+
+- **`JWT_SECRET` tiene que valer lo mismo en los dos planos.** Si no, el login
+  del navegador sale bien y después todo pedido responde 401: es el primer lugar
+  donde mirar cuando el entrenador te saca de la sesión apenas entrás.
+- **Para entrar al entrenador hace falta que el plano Cliente esté arriba**, porque
+  es el único que puede emitir un token. `entrenador-web` llega a él por su
+  nginx, que reenvía `/auth` a `CLIENTE_API_URL` (por eso `nginx.conf` pasó a ser
+  `nginx.conf.template`: la URL cambia según dónde esté el otro plano). En el
+  navegador es el mismo origen, así que no hay CORS de por medio.
+- **Dos endpoints llevan el token en la URL y no en el header**, porque no pueden
+  mandar headers: el SSE del progreso (`EventSource`) y los gráficos de cada
+  modelo (`<img src>`). Es lo mismo que ya hacía `cliente-api` con las teselas.
+
+Entra cualquier usuario de la tabla: la columna `rol` se muestra y no restringe
+nada, igual que en `cliente-web`.
 
 ### Detalles de la segmentación que no son evidentes
 
@@ -109,6 +135,8 @@ docker compose -f despliegue/compose.dev.yml up --build
 # compose.dev.yml no trae el entrenamiento: se suma la parte de compose.ia.yml sin su ia-inferencia
 # (chocaría en el 8001). Otro nombre de proyecto (-p) para que compose no los mezcle: los dos
 # archivos están en despliegue/ y si no compartirían el nombre por defecto.
+# El entrenador necesita el cliente-api de arriba para el login: queda en otra red de compose,
+# así que su nginx lo busca en el host (CLIENTE_API_URL, ya configurado por defecto).
 docker compose -p pti-ia -f despliegue/compose.ia.yml up --build ia-entrenamiento-api ia-entrenamiento-worker entrenador-web
 
 # Despliegue por plano

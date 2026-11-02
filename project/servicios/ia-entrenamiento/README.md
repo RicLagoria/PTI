@@ -6,13 +6,52 @@ worker.
 
 - `nucleo/` — código compartido por los dos: conversión de labelme a YOLO,
   remapeo de clases, cola de trabajos en disco y registro de modelos.
-- `api/` — servidor FastAPI: datasets, entrenamientos (SSE) y modelos.
+- `api/` — servidor FastAPI: datasets, entrenamientos (SSE) y modelos. Pide
+  autenticación en todo salvo `GET /salud`; ver "Autenticación".
 - `worker/` — reclama el trabajo pendiente más viejo de la cola y lo entrena
   (sale de `mvp/entrenador yolov8/train.py`). Se puede escalar a varias
   réplicas; ver "Varios workers".
 
 Un entrenamiento publica una versión nueva pero nunca la activa: activar es un
 paso explícito.
+
+## Autenticación
+
+Todos los endpoints exigen un JWT, menos `GET /salud`. Las cuentas son las
+mismas que las del sitio de análisis, pero **este servicio no las conoce**: quien
+valida usuario y contraseña contra la tabla `usuarios` es `cliente-api`
+(`POST /auth/login`), y acá solo se verifica la firma del token con el mismo
+`JWT_SECRET` (`api/auth.py`). Es el mismo reparto que con lo geoespacial: el
+plano IA hace su trabajo y no se mete con lo que es del plano Cliente.
+
+Por eso el plano IA no necesita `psycopg` ni `bcrypt` ni `DATABASE_URL`, solo
+`pyjwt` y esa variable. Tiene que tener **el mismo valor** que en el plano
+Cliente: si no, el login del navegador sale bien y después todo pedido responde
+401 "Token inválido". Es el primer lugar donde mirar si pasa eso.
+
+El token va en `Authorization: Bearer <token>`, y también se acepta como
+`?token=<token>` para los dos pedidos que no pueden mandar headers:
+`GET /entrenamientos/{id}/stream` (EventSource) y
+`GET /modelos/{v}/imagenes/{nombre}` (`<img src>`).
+
+No hay distinción por rol: cualquier usuario de la tabla puede subir aportes,
+entrenar y activar versiones.
+
+Un entrenamiento largo puede pasarle el token por encima: dura 12 h
+(`JWT_HORAS_VALIDEZ` de `cliente-api`) y una corrida en CPU puede tardar más. Lo
+que se corta es el seguimiento, no el entrenamiento: el worker toma los trabajos
+de la cola en disco y no le pide nada a la API ni le importa quién los encoló.
+Al volver a entrar, el progreso sigue ahí.
+
+Para probar con curl hay que pedir el token primero:
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"usuario":"tu-usuario","contrasena":"tu-clave"}' | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')
+
+curl -s http://localhost:8002/modelos -H "Authorization: Bearer $TOKEN"
+```
 
 ## Qué entrena: contornos o cajas
 

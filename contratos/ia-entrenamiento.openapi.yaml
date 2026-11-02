@@ -16,7 +16,29 @@ info:
       disponible lo dice `GET /dispositivos`.
     - **Hasta cuándo** (`epocas` y `paciencia`): `epocas` es el tope y `paciencia` corta
       antes si el mAP de validación deja de mejorar.
-  version: 1.1.0
+  version: 1.2.0
+
+# Todos los endpoints piden el token del sitio de análisis. Las cuentas son las
+# mismas, pero este servicio no las conoce: quien valida usuario y contraseña es
+# cliente-api (POST /auth/login, que no es parte de este contrato) y acá solo se
+# verifica la firma del JWT con el mismo JWT_SECRET. GET /salud es la excepción y
+# no está en este contrato.
+security:
+  - tokenCliente: []
+
+components:
+  securitySchemes:
+    tokenCliente:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT emitido por `cliente-api` en `POST /auth/login`. Viaja en
+        `Authorization: Bearer <token>`, y también se acepta como query param
+        `?token=<token>` para los dos pedidos que no pueden mandar headers:
+        `GET /entrenamientos/{id}/stream` (EventSource) y
+        `GET /modelos/{v}/imagenes/{nombre}` (`<img src>`).
+
 paths:
   /clases:
     get:
