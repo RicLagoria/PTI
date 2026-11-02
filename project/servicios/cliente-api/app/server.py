@@ -10,8 +10,6 @@ from pydantic import BaseModel
 
 import almacen
 import auth
-import bloqueo
-import tareas
 from analisis import ejecutar_inspeccion_segmentada
 from teselas import renderizar_tesela_png
 
@@ -41,22 +39,6 @@ def carpeta_imagen(imagen_id: str):
     if carpeta is None:
         raise HTTPException(status_code=404, detail="Imagen no encontrada.")
     return carpeta
-
-
-def tomar_bloqueo(carpeta) -> bloqueo.BloqueoImagen:
-    """
-    Reserva la imagen para un análisis. Si ya hay uno corriendo no espera ni lo
-    pisa: responde 409 e incluye el estado del análisis activo (caso P1).
-    """
-    candado = bloqueo.BloqueoImagen(carpeta)
-    try:
-        candado.adquirir()
-    except bloqueo.AnalisisEnCurso:
-        raise HTTPException(status_code=409, detail={
-            "mensaje": "Ya hay un análisis en curso sobre esta imagen.",
-            "analisis": tareas.leer_estado(carpeta),
-        })
-    return candado
 
 
 @app.get("/salud")
@@ -161,21 +143,15 @@ def analizar_campo_stream(
 ):
     """
     Consume el generador de analisis.py y transmite cada bloque vía Server-Sent Events.
-    Un solo análisis activo por imagen: el segundo recibe 409 (ver bloqueo.py).
     """
-    candado = tomar_bloqueo(carpeta)  # antes de armar la respuesta, para poder devolver 409
-
     def generador_eventos():
-        try:
-            for chunk in ejecutar_inspeccion_segmentada(
-                ruta_tif=str(carpeta / almacen.NOMBRE_COG),
-                cuadrante=cuadrante,
-                ruta_json=str(carpeta / almacen.NOMBRE_DETECCIONES),
-                conf=conf
-            ):
-                yield f"data: {json.dumps(chunk)}\n\n"
-        finally:
-            candado.liberar()
+        for chunk in ejecutar_inspeccion_segmentada(
+            ruta_tif=str(carpeta / almacen.NOMBRE_COG),
+            cuadrante=cuadrante,
+            ruta_json=str(carpeta / almacen.NOMBRE_DETECCIONES),
+            conf=conf
+        ):
+            yield f"data: {json.dumps(chunk)}\n\n"
 
     return StreamingResponse(generador_eventos(), media_type="text/event-stream")
 
@@ -191,49 +167,13 @@ def analizar_campo_completo(
     usuario=Depends(auth.usuario_actual),
 ):
     """Conserva la ejecución tradicional acumulando todos los bloques antes de responder."""
-    candado = tomar_bloqueo(carpeta)
     resultado_final = None
-    try:
-        for chunk in ejecutar_inspeccion_segmentada(
-            ruta_tif=str(carpeta / almacen.NOMBRE_COG),
-            cuadrante=cuadrante,
-            ruta_json=str(carpeta / almacen.NOMBRE_DETECCIONES),
-            conf=conf
-        ):
-            resultado_final = chunk
-    finally:
-        candado.liberar()
+    for chunk in ejecutar_inspeccion_segmentada(
+        ruta_tif=str(carpeta / almacen.NOMBRE_COG),
+        cuadrante=cuadrante,
+        ruta_json=str(carpeta / almacen.NOMBRE_DETECCIONES),
+        conf=conf
+    ):
+        resultado_final = chunk
 
     return resultado_final
-
-
-# ==========================================================
-# 6. ANÁLISIS ASÍNCRONO (Entrega 3 de PDC)
-# ==========================================================
-@app.post("/imagenes/{imagen_id}/analisis", status_code=202)
-def iniciar_analisis(
-    cuadrante: Optional[int] = None,
-    conf: float = 0.10,
-    carpeta=Depends(carpeta_imagen),
-    usuario=Depends(auth.usuario_actual),
-):
-    """
-    Lanza el análisis en segundo plano y responde 202 al instante con su estado.
-    El avance se consulta con GET /imagenes/{id}/analisis. Si ya hay uno
-    corriendo sobre la imagen, responde 409 en lugar de lanzar otro.
-    """
-    candado = tomar_bloqueo(carpeta)
-    try:
-        return tareas.lanzar(carpeta, candado, cuadrante, conf)
-    except BaseException:
-        candado.liberar()
-        raise
-
-
-@app.get("/imagenes/{imagen_id}/analisis")
-def consultar_analisis(carpeta=Depends(carpeta_imagen), usuario=Depends(auth.usuario_actual)):
-    """Estado y progreso del último análisis: en_curso, completado, fallido o interrumpido."""
-    estado = tareas.leer_estado(carpeta)
-    if estado is None:
-        raise HTTPException(status_code=404, detail="Esta imagen todavía no tiene análisis.")
-    return estado
