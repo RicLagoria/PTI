@@ -19,3 +19,6 @@ opencv-python==5.0.0.93
 numpy==2.0.2
 pillow==11.3.0
 
+# --- Informe en PDF de un análisis ---
+reportlab==4.2.5
+

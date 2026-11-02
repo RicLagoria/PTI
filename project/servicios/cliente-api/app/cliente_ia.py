@@ -23,7 +23,7 @@ class ClienteIA:
         # Retorna valores por defecto si el servicio remoto aún no responde
         return {
             "version": "v1",
-            "clases": ["maleza", "falla", "camino", "lodazal"],
+            "clases": ["maleza", "falla"],
             "imgsz": 640,
             "metricas": {},
             "disponible": False

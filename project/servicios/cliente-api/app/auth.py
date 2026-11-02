@@ -18,6 +18,11 @@ def _conexion():
     return psycopg.connect(DATABASE_URL, row_factory=dict_row)
 
 
+# Alias público: datos.py lo usa para hablarle a las mismas tablas sin
+# duplicar DATABASE_URL en otro lado.
+conexion = _conexion
+
+
 def hashear_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
@@ -48,6 +53,7 @@ def registrar_acceso(username: str) -> None:
 def _perfil_publico(usuario: Dict) -> Dict:
     """Lo que viaja al front: todo menos el hash de la contraseña."""
     return {
+        "id": usuario["id"],
         "username": usuario["username"],
         "nombre_completo": usuario["nombre_completo"],
         "rol": usuario["rol"],

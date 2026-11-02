@@ -1,0 +1,38 @@
+# Plano IA sin GPU. Es un override de compose.ia.yml, van los dos -f:
+#
+#   docker compose -f compose.ia.yml -f compose.ia.cpu.yml up --build
+#
+# compose.ia.yml reserva la placa, así que en una máquina sin NVIDIA el `up`
+# falla con "could not select device driver nvidia with capabilities: [[gpu]]"
+# antes de arrancar nada. Este archivo saca esa reserva y construye la imagen
+# con las ruedas de torch para CPU, que son varios GB más chicas.
+#
+# Entrenar sigue siendo posible: `dispositivo: cpu` es el valor por defecto de
+# un trabajo y no necesita placa. Lo que no se puede en esta variante es pedir
+# `dispositivo: gpu`, y entrenador-web va a mostrar la opción deshabilitada con
+# el motivo que devuelve GET /dispositivos (ver nucleo/dispositivos.py).
+#
+# `!override` no es decorativo: al fusionar dos archivos, compose **suma** las
+# listas, así que un `devices: []` a secas deja la reserva del archivo base
+# igual y el `up` falla lo mismo. La etiqueta hace que esta lista reemplace a la
+# otra en vez de sumarse. Necesita Compose v2.24 o posterior.
+services:
+  ia-entrenamiento-api:
+    build:
+      context: ../project/servicios/ia-entrenamiento
+      args:
+        VARIANTE_TORCH: cpu
+    deploy:
+      resources:
+        reservations:
+          devices: !override []
+
+  ia-entrenamiento-worker:
+    build:
+      context: ../project/servicios/ia-entrenamiento
+      args:
+        VARIANTE_TORCH: cpu
+    deploy:
+      resources:
+        reservations:
+          devices: !override []

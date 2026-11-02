@@ -1,0 +1,554 @@
+// =====================================
+// src/components/Aportes/Aportes.tsx
+// =====================================
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { DragEvent } from "react";
+import {
+  Button,
+  Card,
+  CardBody,
+  Checkbox,
+  CheckboxGroup,
+  Chip,
+  Input,
+  Modal,
+  ModalBody,
+  ModalContent,
+  ModalFooter,
+  ModalHeader,
+  Progress,
+  Spinner,
+} from "@heroui/react";
+import { CheckCircle2, FileArchive, Info, Layers, Tags, Trash2, Upload } from "lucide-react";
+
+import {
+  eliminarDataset,
+  generarVentanas,
+  listarClases,
+  listarDatasets,
+  subirDataset,
+  ventanasDisponibles,
+  type Dataset,
+  type VentanasDisponibles,
+} from "../../services/EntrenamientoService";
+import { fecha, numero, plural, tamanoArchivo } from "../../utils/formato";
+import PanelError from "../comunes/PanelError";
+import { claseEtiqueta, claseTarjeta, claseTextoSuave } from "../comunes/estilos";
+
+type Fase = "elegir" | "subiendo" | "procesando";
+
+/** Avisos de un aporte aceptado: cosas que se ignoraron y conviene revisar. */
+function avisosDe(d: Dataset): string[] {
+  const avisos = [];
+  // Una imagen ignorada no le enseña nada al modelo; declarada como fondo, le
+  // enseña que ahí no hay maleza. Por eso el aviso dice qué hacer.
+  if (d.imagenes_sin_anotar) {
+    avisos.push(
+      `${plural(d.imagenes_sin_anotar, "imagen")} sin .json se ignoraron: si ya revisaste que no ` +
+        'tienen maleza, volvé a subir el aporte con "las imágenes sin .json son fondo"'
+    );
+  }
+  if (d.fondos_declarados) {
+    avisos.push(
+      `${plural(d.fondos_declarados, "imagen")} sin .json se declararon fondo al subir: si alguna ` +
+        "tenía maleza, le está enseñando al modelo que no la tiene"
+    );
+  }
+  if (d.formas_ignoradas) avisos.push(`${plural(d.formas_ignoradas, "forma")} sin área (puntos o líneas) se ignoraron`);
+  if (d.cajas_descartadas) avisos.push(`${plural(d.cajas_descartadas, "caja")} demasiado chicas se descartaron`);
+  // Sin contornos el aporte solo sirve para entrenar cajas
+  if (d.tiene_segmentacion === false) {
+    avisos.push("no tiene contornos: solo sirve para entrenar cajas, no segmentación");
+  } else if (d.contornos_de_caja) {
+    avisos.push(
+      `${plural(d.contornos_de_caja, "contorno")} son solo el rectángulo de la etiqueta: ` +
+        "entrenar segmentación con eso le enseña rectángulos al modelo"
+    );
+  }
+  if (d.contornos_descartados) {
+    avisos.push(`${plural(d.contornos_descartados, "forma")} quedaron sin contorno usable (se guardó solo su caja)`);
+  }
+  return avisos;
+}
+
+function ConteoPorClase({ dataset }: { dataset: Dataset }) {
+  const total = Math.max(1, dataset.total_anotaciones);
+  return (
+    <div className="space-y-1.5">
+      {Object.entries(dataset.anotaciones_por_clase).map(([clase, cantidad]) => (
+        <div key={clase} className="flex items-center gap-2 text-xs">
+          <span className="w-16 shrink-0 truncate text-slate-600 dark:text-slate-300">{clase}</span>
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${(cantidad / total) * 100}%` }} />
+          </div>
+          <span className="w-8 shrink-0 text-right tabular-nums text-slate-500 dark:text-slate-400">{cantidad}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export default function Aportes() {
+  const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [clases, setClases] = useState<string[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState<unknown>(null);
+
+  const [archivo, setArchivo] = useState<File | null>(null);
+  const [nombre, setNombre] = useState("");
+  const [fondosImplicitos, setFondosImplicitos] = useState(false);
+  const [arrastrando, setArrastrando] = useState(false);
+  const [fase, setFase] = useState<Fase>("elegir");
+  const [progreso, setProgreso] = useState(0);
+  const [resultado, setResultado] = useState<Dataset | null>(null);
+  const [errorSubida, setErrorSubida] = useState<unknown>(null);
+  const selectorArchivo = useRef<HTMLInputElement>(null);
+
+  const [aBorrar, setABorrar] = useState<Dataset | null>(null);
+  const [borrando, setBorrando] = useState(false);
+  const [errorBorrado, setErrorBorrado] = useState<unknown>(null);
+
+  const [aDerivar, setADerivar] = useState<Dataset | null>(null);
+  const [disponibles, setDisponibles] = useState<VentanasDisponibles | null>(null);
+  const [escalas, setEscalas] = useState<string[]>([]);
+  const [derivando, setDerivando] = useState(false);
+  const [errorDerivar, setErrorDerivar] = useState<unknown>(null);
+  const [derivados, setDerivados] = useState<Dataset[] | null>(null);
+
+  const recargar = useCallback(async () => {
+    try {
+      const [lista, canonicas] = await Promise.all([listarDatasets(), listarClases()]);
+      // Los más nuevos arriba
+      setDatasets([...lista].sort((a, b) => b.fecha_creacion.localeCompare(a.fecha_creacion)));
+      setClases(canonicas);
+      setErrorCarga(null);
+    } catch (e) {
+      setErrorCarga(e);
+    } finally {
+      setCargando(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    recargar();
+  }, [recargar]);
+
+  const elegirArchivo = (nuevo: File | undefined) => {
+    if (!nuevo) return;
+    setArchivo(nuevo);
+    setResultado(null);
+    setErrorSubida(null);
+  };
+
+  const soltar = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    setArrastrando(false);
+    if (fase === "elegir") elegirArchivo(e.dataTransfer.files[0]);
+  };
+
+  const subir = async () => {
+    if (!archivo) return;
+    setFase("subiendo");
+    setProgreso(0);
+    setResultado(null);
+    setErrorSubida(null);
+    try {
+      const dataset = await subirDataset(archivo, nombre, fondosImplicitos, setProgreso, () =>
+        setFase("procesando")
+      );
+      setResultado(dataset);
+      setArchivo(null);
+      setNombre("");
+      setFondosImplicitos(false);
+      if (selectorArchivo.current) selectorArchivo.current.value = "";
+      await recargar();
+    } catch (e) {
+      setErrorSubida(e);
+    } finally {
+      setFase("elegir");
+    }
+  };
+
+  const confirmarBorrado = async () => {
+    if (!aBorrar) return;
+    setBorrando(true);
+    setErrorBorrado(null);
+    try {
+      await eliminarDataset(aBorrar.id);
+      setABorrar(null);
+      if (resultado?.id === aBorrar.id) setResultado(null);
+      await recargar();
+    } catch (e) {
+      setErrorBorrado(e);
+    } finally {
+      setBorrando(false);
+    }
+  };
+
+  const abrirDerivar = async (d: Dataset) => {
+    setADerivar(d);
+    setDisponibles(null);
+    setEscalas([]);
+    setDerivados(null);
+    setErrorDerivar(null);
+    try {
+      const info = await ventanasDisponibles(d.id);
+      setDisponibles(info);
+      // Preseleccionada 4×, que sobre El Azul son unos 89 m: ahí entra entera
+      // el 90% de las manchas y el recorte baja de 24,9% a 17,5%. Más lejos se
+      // gana poco (las manchas que siguen cortadas son bandas sin tamaño
+      // propio, que se arreglan fusionando en el análisis) y se pierden las
+      // chicas. Si no da ninguna ventana, la mayor que dé alguna.
+      const utiles = Object.entries(info.escalas).filter(([, n]) => n > 0);
+      const preferida = utiles.find(([escala]) => escala === "4") ?? utiles[utiles.length - 1];
+      if (preferida) setEscalas([preferida[0]]);
+    } catch (e) {
+      setErrorDerivar(e);
+    }
+  };
+
+  const confirmarDerivar = async () => {
+    if (!aDerivar || !escalas.length) return;
+    setDerivando(true);
+    setErrorDerivar(null);
+    try {
+      const nuevos = await generarVentanas(aDerivar.id, escalas.map(Number));
+      setDerivados(nuevos);
+      await recargar();
+    } catch (e) {
+      setErrorDerivar(e);
+    } finally {
+      setDerivando(false);
+    }
+  };
+
+  const ocupado = fase !== "elegir";
+
+  return (
+    <div className="grid gap-6 lg:grid-cols-5">
+      {/* ===== Subida ===== */}
+      <div className="space-y-6 lg:col-span-2">
+        <Card className={claseTarjeta}>
+          <CardBody className="space-y-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className={claseEtiqueta}>Nuevo aporte</p>
+                <h2 className="text-2xl font-semibold">Subir ZIP de labelme</h2>
+              </div>
+              <Upload className="h-6 w-6 text-sky-500" />
+            </div>
+
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={() => !ocupado && selectorArchivo.current?.click()}
+              onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && !ocupado && selectorArchivo.current?.click()}
+              onDragOver={(e) => {
+                e.preventDefault();
+                if (!ocupado) setArrastrando(true);
+              }}
+              onDragLeave={() => setArrastrando(false)}
+              onDrop={soltar}
+              className={`flex cursor-pointer flex-col items-center gap-2 rounded-2xl border-2 border-dashed p-6 text-center transition-colors ${
+                arrastrando
+                  ? "border-sky-500 bg-sky-50 dark:bg-sky-950/40"
+                  : "border-slate-300 hover:border-sky-400 dark:border-slate-600"
+              } ${ocupado ? "pointer-events-none opacity-60" : ""}`}
+            >
+              <FileArchive className="h-8 w-8 text-slate-400" />
+              {archivo ? (
+                <>
+                  <p className="font-medium break-all">{archivo.name}</p>
+                  <p className="text-xs text-slate-500">{tamanoArchivo(archivo.size)} · clic para cambiarlo</p>
+                </>
+              ) : (
+                <>
+                  <p className="font-medium">Arrastrá el ZIP acá o hacé clic para elegirlo</p>
+                  <p className="text-xs text-slate-500">Las imágenes y los .json que guarda labelme, en cualquier estructura de carpetas</p>
+                </>
+              )}
+              <input
+                ref={selectorArchivo}
+                type="file"
+                accept=".zip,application/zip"
+                className="hidden"
+                onChange={(e) => elegirArchivo(e.target.files?.[0])}
+              />
+            </div>
+
+            <Input
+              label="Nombre del aporte"
+              placeholder={archivo ? archivo.name.replace(/\.zip$/i, "") : "Por ejemplo: Lote norte, octubre"}
+              description="Opcional. Si lo dejás vacío se usa el nombre del archivo."
+              value={nombre}
+              onValueChange={setNombre}
+              isDisabled={ocupado}
+            />
+
+            <Checkbox
+              isSelected={fondosImplicitos}
+              onValueChange={setFondosImplicitos}
+              isDisabled={ocupado}
+              size="sm"
+            >
+              <span className="text-sm">
+                Las imágenes sin .json son fondo
+                <span className={`block text-xs ${claseTextoSuave}`}>
+                  Entran como ejemplo negativo en vez de ignorarse. Marcalo solo si ya revisaste que no tienen
+                  maleza: declarar fondo una tesela a medio etiquetar le enseña al modelo que esa maleza no
+                  existe.
+                </span>
+              </span>
+            </Checkbox>
+
+            {fase === "subiendo" && <Progress aria-label="Subiendo" label="Subiendo…" value={progreso} showValueLabel color="primary" />}
+            {fase === "procesando" && (
+              <Progress aria-label="Procesando" label="Convirtiendo las anotaciones…" isIndeterminate color="primary" />
+            )}
+
+            <Button color="primary" onPress={subir} isDisabled={!archivo || ocupado} isLoading={ocupado} className="dark:bg-blue-700">
+              Subir aporte
+            </Button>
+
+            {errorSubida != null && <PanelError error={errorSubida} />}
+
+            {resultado && (
+              <div className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100">
+                <p className="flex items-center gap-2 font-medium">
+                  <CheckCircle2 className="h-4 w-4" />
+                  "{resultado.nombre}" quedó guardado: {plural(resultado.total_imagenes, "imagen", "imágenes")},{" "}
+                  {plural(resultado.total_anotaciones, "anotación", "anotaciones")}.
+                </p>
+                {avisosDe(resultado).length > 0 && (
+                  <ul className="list-disc space-y-1 pl-5 text-amber-800 dark:text-amber-200">
+                    {avisosDe(resultado).map((aviso) => (
+                      <li key={aviso}>{aviso}</li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
+          </CardBody>
+        </Card>
+
+        <Card className={claseTarjeta}>
+          <CardBody className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Tags className="h-5 w-5 text-emerald-500" />
+              <h2 className="text-lg font-semibold">Etiquetas válidas</h2>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {clases.map((clase, i) => (
+                <Chip key={clase} variant="flat" color="success">
+                  {i} · {clase}
+                </Chip>
+              ))}
+            </div>
+            <p className={`text-sm ${claseTextoSuave}`}>
+              Las etiquetas se comparan por nombre, sin importar mayúsculas ni espacios de más. Cualquier otra rechaza el aporte entero.
+              Rectángulos, polígonos y círculos se convierten a cajas; un .json sin formas cuenta como imagen de fondo.
+            </p>
+          </CardBody>
+        </Card>
+      </div>
+
+      {/* ===== Listado ===== */}
+      <Card className={`${claseTarjeta} lg:col-span-3`}>
+        <CardBody className="space-y-4">
+          <div>
+            <p className={claseEtiqueta}>Guardados</p>
+            <h2 className="text-2xl font-semibold">
+              {cargando ? "Aportes" : `${plural(datasets.length, "aporte")}`}
+            </h2>
+          </div>
+
+          {cargando ? (
+            <Spinner label="Cargando aportes…" />
+          ) : errorCarga != null ? (
+            <PanelError error={errorCarga} />
+          ) : datasets.length === 0 ? (
+            <p className={claseTextoSuave}>Todavía no hay aportes. Subí el primero desde el panel de la izquierda.</p>
+          ) : (
+            <ul className="space-y-3">
+              {datasets.map((d) => {
+                const avisos = avisosDe(d);
+                return (
+                  <li key={d.id} className="rounded-2xl border border-slate-200 p-4 dark:border-slate-700">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="flex items-center gap-2 truncate font-semibold">
+                          {d.nombre}
+                          {d.escala && (
+                            <Chip size="sm" variant="flat" color="secondary">
+                              {d.escala}× · {d.lado_ventana_px} px
+                            </Chip>
+                          )}
+                        </p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          {fecha(d.fecha_creacion)} · {d.archivo_original} · <span className="font-mono">{d.id}</span>
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        {/* Un aporte derivado no se vuelve a derivar: sus imágenes ya
+                            son ventanas y no llevan la posición de una tesela */}
+                        {!d.derivado_de && (
+                          <Button
+                            isIconOnly
+                            size="sm"
+                            variant="light"
+                            aria-label={`Generar escalas gruesas de ${d.nombre}`}
+                            title="Generar escalas gruesas"
+                            onPress={() => abrirDerivar(d)}
+                          >
+                            <Layers className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button
+                          isIconOnly
+                          size="sm"
+                          variant="light"
+                          color="danger"
+                          aria-label={`Eliminar ${d.nombre}`}
+                          onPress={() => {
+                            setErrorBorrado(null);
+                            setABorrar(d);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid gap-4 sm:grid-cols-[auto_1fr]">
+                      <div className="flex gap-4 text-sm sm:flex-col sm:gap-1">
+                        <span>
+                          <span className="text-lg font-semibold tabular-nums">{numero(d.total_imagenes)}</span>{" "}
+                          {d.total_imagenes === 1 ? "imagen" : "imágenes"}
+                        </span>
+                        <span>
+                          <span className="text-lg font-semibold tabular-nums">{numero(d.total_anotaciones)}</span> cajas
+                        </span>
+                        {d.imagenes_sin_objetos > 0 && (
+                          <span className="text-xs text-slate-500">{plural(d.imagenes_sin_objetos, "fondo")}</span>
+                        )}
+                      </div>
+                      <ConteoPorClase dataset={d} />
+                    </div>
+
+                    {avisos.length > 0 && (
+                      <p className="mt-3 flex items-start gap-1.5 text-xs text-amber-700 dark:text-amber-300">
+                        <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        {avisos.join(" · ")}
+                      </p>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </CardBody>
+      </Card>
+
+      <Modal isOpen={aDerivar !== null} onClose={() => !derivando && setADerivar(null)} size="lg">
+        <ModalContent>
+          <ModalHeader>Generar escalas gruesas</ModalHeader>
+          <ModalBody className="space-y-4">
+            <p className={`text-sm ${claseTextoSuave}`}>
+              Pega teselas vecinas de <span className="font-semibold">{aDerivar?.nombre}</span> en una sola imagen y la
+              reduce a 640 px, así el modelo ve más campo de una vez y una mancha más grande que una tesela deja de
+              aparecer cortada. Las etiquetas se recomponen solas: no hay que etiquetar nada de nuevo.
+            </p>
+
+            {derivados ? (
+              <div className="space-y-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100">
+                {derivados.map((d) => (
+                  <p key={d.id} className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    {d.escala}×: {plural(d.total_imagenes, "ventana")} con{" "}
+                    {plural(d.total_anotaciones, "contorno")}
+                    {d.formas_unidas
+                      ? `, y se unieron ${plural(d.formas_unidas, "mancha partida", "manchas partidas")}`
+                      : ""}
+                    .
+                  </p>
+                ))}
+                <p className="text-xs">Ya están en la lista y se pueden elegir en un entrenamiento.</p>
+              </div>
+            ) : disponibles === null && errorDerivar == null ? (
+              <Spinner label="Viendo qué escalas dan ventanas completas…" />
+            ) : disponibles && !disponibles.apto ? (
+              <p className="text-sm text-amber-700 dark:text-amber-300">{disponibles.motivo}</p>
+            ) : disponibles ? (
+              <CheckboxGroup
+                label="Qué escalas generar"
+                description="Cada una queda como un aporte aparte, para que todas tengan imágenes en validación."
+                value={escalas}
+                onValueChange={setEscalas}
+                isDisabled={derivando}
+              >
+                {Object.entries(disponibles.escalas).map(([escala, cantidad]) => {
+                  const n = Number(escala);
+                  return (
+                    <Checkbox key={escala} value={escala} isDisabled={cantidad === 0}>
+                      <span className="text-sm">
+                        <span className="font-semibold">{escala}×</span> · {n * n} teselas por ventana ·{" "}
+                        {n * (disponibles.paso_px ?? 0)} px
+                        <span className={cantidad === 0 ? "text-amber-600 dark:text-amber-400" : claseTextoSuave}>
+                          {cantidad === 0
+                            ? " · no hay ninguna ventana completa"
+                            : ` · ${plural(cantidad, "ventana")}`}
+                        </span>
+                      </span>
+                    </Checkbox>
+                  );
+                })}
+              </CheckboxGroup>
+            ) : null}
+
+            {errorDerivar != null && <PanelError error={errorDerivar} />}
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={() => setADerivar(null)} isDisabled={derivando}>
+              {derivados ? "Cerrar" : "Cancelar"}
+            </Button>
+            {!derivados && (
+              <Button
+                color="primary"
+                onPress={confirmarDerivar}
+                isLoading={derivando}
+                isDisabled={!escalas.length || derivando}
+                className="dark:bg-blue-700"
+              >
+                Generar
+              </Button>
+            )}
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <Modal isOpen={aBorrar !== null} onClose={() => !borrando && setABorrar(null)}>
+        <ModalContent>
+          <ModalHeader>Eliminar aporte</ModalHeader>
+          <ModalBody className="space-y-3">
+            <p>
+              ¿Eliminar <span className="font-semibold">{aBorrar?.nombre}</span>? Se borran sus{" "}
+              {plural(aBorrar?.total_imagenes ?? 0, "imagen", "imágenes")} y no se puede deshacer.
+            </p>
+            <p className={`text-sm ${claseTextoSuave}`}>
+              Las versiones del modelo ya entrenadas con este aporte no cambian; los entrenamientos en cola que lo usen van a fallar.
+            </p>
+            {errorBorrado != null && <PanelError error={errorBorrado} />}
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={() => setABorrar(null)} isDisabled={borrando}>
+              Cancelar
+            </Button>
+            <Button color="danger" onPress={confirmarBorrado} isLoading={borrando}>
+              Eliminar
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+    </div>
+  );
+}

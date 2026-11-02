@@ -1,0 +1,193 @@
+"""
+Informe en PDF de un análisis: a diferencia de exportar.geojson/.csv (que son
+puros datos), esto arma algo para mirar — la imagen del campo con las
+detecciones marcadas encima, más un resumen. Usa el mismo COG que ya está en
+disco (ver almacen.py), no vuelve a pedir nada a ia-inferencia.
+"""
+import io
+from datetime import datetime, timezone
+from typing import Dict, List
+
+from PIL import Image, ImageDraw
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import Image as RLImage
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from rio_tiler.io import Reader
+from rio_tiler.profiles import img_profiles
+
+COLOR_POR_CLASE = {
+    "maleza": (239, 68, 68),
+    "falla": (245, 158, 11),
+    "camino": (100, 116, 139),
+    "lodazal": (14, 165, 233),
+}
+COLOR_DEFECTO = (167, 139, 250)
+
+ESTADO_LABEL = {"completo": "Completo", "en_progreso": "En progreso", "error": "Error"}
+
+
+def _color_de(clase: str) -> tuple:
+    return COLOR_POR_CLASE.get(clase, COLOR_DEFECTO)
+
+
+def _superficie(metros2: float) -> str:
+    """Superficie legible: una mancha se mide en m², un lote entero en hectáreas."""
+    if metros2 >= 10_000:
+        return f"{metros2 / 10_000:,.2f} ha".replace(",", ".")
+    return f"{round(metros2):,} m²".replace(",", ".")
+
+
+def _imagen_con_marcas(ruta_archivo: str, ancho_px: int, alto_px: int, detecciones: List[Dict]) -> Image.Image:
+    """
+    Preview del COG completo (liviano, no la imagen original de gigas) con las
+    detecciones encima, reproyectando los píxeles globales a la escala del preview.
+
+    Una detección con contorno se dibuja como la mancha que es, rellena y
+    translúcida para que se siga viendo el cultivo debajo; una sin contorno
+    (análisis con un modelo de detección) sigue siendo un punto. El relleno va
+    en una capa RGBA aparte porque PIL no mezcla alfa dibujando directo sobre
+    una imagen RGB.
+    """
+    with Reader(ruta_archivo) as cog:
+        preview = cog.preview(max_size=1100)
+        png_bytes = preview.render(img_format="PNG", **img_profiles.get("png"))
+
+    img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+    escala_x = img.width / ancho_px
+    escala_y = img.height / alto_px
+
+    capa = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    dibujo = ImageDraw.Draw(capa)
+
+    for det in detecciones:
+        color = _color_de(det["clase"])
+        contorno = det.get("contorno_global_px")
+        if contorno and len(contorno) >= 3:
+            vertices = [(x * escala_x, y * escala_y) for x, y in contorno]
+            dibujo.polygon(vertices, fill=(*color, 70), outline=(*color, 255), width=2)
+            continue
+        x1, y1, x2, y2 = det["box_global_px"][:4]
+        cx = (x1 + x2) / 2 * escala_x
+        cy = (y1 + y2) / 2 * escala_y
+        r = 5
+        dibujo.ellipse([cx - r, cy - r, cx + r, cy + r], fill=(*color, 255), outline=(255, 255, 255, 255), width=1)
+
+    return Image.alpha_composite(img.convert("RGBA"), capa).convert("RGB")
+
+
+def generar_pdf(
+    ortomosaico: Dict,
+    analisis: Dict,
+    detecciones: List[Dict],
+    usuario_nombre: str,
+    superficies: Dict,
+) -> bytes:
+    """
+    `superficies` viene de datos.superficie_real: la superficie que cubren
+    las detecciones contando una sola vez el suelo que comparten dos que se
+    pisan. Sumar el area_m2 de cada detección daría más, y es justamente el
+    número que un informe agronómico no puede tener inflado.
+    """
+    estilos = getSampleStyleSheet()
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=18 * mm, bottomMargin=15 * mm, leftMargin=18 * mm, rightMargin=18 * mm)
+    elementos = []
+
+    elementos.append(Paragraph(f"Informe de análisis — {ortomosaico['nombre']}", estilos["Title"]))
+    elementos.append(Paragraph(f"Análisis #{analisis['id']} · AgroVision", estilos["Normal"]))
+    elementos.append(Spacer(1, 6 * mm))
+
+    fecha_inicio = analisis["fecha_inicio"]
+    fecha_texto = fecha_inicio.strftime("%d/%m/%Y %H:%M") if hasattr(fecha_inicio, "strftime") else str(fecha_inicio)[:16].replace("T", " ")
+
+    filas_meta = [
+        ["Ortomosaico", ortomosaico["nombre"]],
+        ["Subido por", ortomosaico.get("usuario_nombre") or "—"],
+        ["Fecha del análisis", fecha_texto],
+        ["Corrido por", usuario_nombre or "—"],
+        ["Versión del modelo", analisis["version_modelo"]],
+        ["Confianza mínima", f"{round(analisis['conf_umbral'] * 100)}%"],
+        ["Estado", ESTADO_LABEL.get(analisis["estado"], analisis["estado"])],
+        ["Celdas inspeccionadas", f"{analisis.get('celdas_activas') or 0} / {analisis.get('total_celdas') or 0}"],
+        ["Detecciones totales", str(len(detecciones))],
+    ]
+
+    area_total = superficies.get("total_m2") or 0.0
+    if area_total > 0:
+        filas_meta.append(["Superficie afectada", _superficie(area_total)])
+    tabla_meta = Table(filas_meta, colWidths=[55 * mm, 110 * mm])
+    tabla_meta.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#64748b")),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.3, colors.HexColor("#e2e8f0")),
+    ]))
+    elementos.append(tabla_meta)
+    elementos.append(Spacer(1, 6 * mm))
+
+    if detecciones:
+        img = _imagen_con_marcas(ortomosaico["ruta_archivo"], ortomosaico["ancho_px"], ortomosaico["alto_px"], detecciones)
+        img_buffer = io.BytesIO()
+        img.save(img_buffer, format="PNG")
+        img_buffer.seek(0)
+        ancho_doc = doc.width
+        alto_img = ancho_doc * img.height / img.width
+        elementos.append(RLImage(img_buffer, width=ancho_doc, height=alto_img))
+        elementos.append(Spacer(1, 6 * mm))
+
+        por_clase = superficies.get("por_clase") or {}
+        conteo: Dict[str, Dict] = {}
+        for d in detecciones:
+            c = conteo.setdefault(d["clase"], {"cantidad": 0, "suma_confianza": 0.0, "area_m2": 0.0})
+            c["cantidad"] += 1
+            c["suma_confianza"] += d["confianza"]
+            # La superficie de la clase no es la suma de sus detecciones: dos que
+            # se pisan comparten suelo. La unión la calcula PostGIS por clase.
+            c["area_m2"] = por_clase.get(d["clase"], 0.0)
+
+        # La superficie afectada solo se puede informar si el análisis corrió con
+        # un modelo de segmentación: de un punto no sale ningún área
+        hay_areas = any(c["area_m2"] > 0 for c in conteo.values())
+        encabezados = ["", "Clase", "Cantidad", "Confianza prom."]
+        anchos = [6 * mm, 60 * mm, 30 * mm, 35 * mm]
+        if hay_areas:
+            encabezados.append("Superficie")
+            anchos = [6 * mm, 45 * mm, 25 * mm, 32 * mm, 33 * mm]
+
+        filas_clase = [encabezados]
+        for clase, c in sorted(conteo.items(), key=lambda kv: -kv[1]["cantidad"]):
+            # `confianza` ya viene en porcentaje desde ia-inferencia (17.81, no
+            # 0.1781), así que acá no se vuelve a multiplicar por 100: el informe
+            # venía mostrando "1781%".
+            fila = ["", clase, str(c["cantidad"]), f"{round(c['suma_confianza'] / c['cantidad'])}%"]
+            if hay_areas:
+                fila.append(_superficie(c["area_m2"]))
+            filas_clase.append(fila)
+
+        tabla_clases = Table(filas_clase, colWidths=anchos)
+        estilo_clases = [
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#64748b")),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("LINEBELOW", (0, 0), (-1, 0), 0.6, colors.HexColor("#94a3b8")),
+        ]
+        for i, (clase, _) in enumerate(sorted(conteo.items(), key=lambda kv: -kv[1]["cantidad"]), start=1):
+            r, g, b = _color_de(clase)
+            estilo_clases.append(("BACKGROUND", (0, i), (0, i), colors.Color(r / 255, g / 255, b / 255)))
+        tabla_clases.setStyle(TableStyle(estilo_clases))
+        elementos.append(tabla_clases)
+    else:
+        elementos.append(Paragraph("Este análisis no encontró detecciones.", estilos["Normal"]))
+
+    elementos.append(Spacer(1, 10 * mm))
+    pie = f"Generado por AgroVision el {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')}"
+    elementos.append(Paragraph(pie, estilos["Italic"]))
+
+    doc.build(elementos)
+    return buffer.getvalue()

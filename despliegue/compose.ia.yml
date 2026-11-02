@@ -10,7 +10,17 @@ services:
     restart: unless-stopped
 
   ia-entrenamiento-api:
-    build: ../project/servicios/ia-entrenamiento
+    build:
+      context: ../project/servicios/ia-entrenamiento
+      args:
+        VARIANTE_TORCH: cu128
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     environment:
       MODELOS_DIR: /datos/modelos
       DATASETS_DIR: /datos/datasets
@@ -20,22 +30,54 @@ services:
       - ../datos/datasets:/datos/datasets
       - ../datos/trabajos:/datos/trabajos
       - ../contratos:/contratos:ro
+    # Sin login, la API permite borrar aportes y cambiar el modelo activo: desde
+    # afuera se llega solo a través de entrenador-web (su nginx usa la red interna
+    # de compose). El puerto queda atado a 127.0.0.1 para "npm run dev" en la misma
+    # máquina o un túnel SSH al servidor, no para la red.
     ports:
-      - "8002:8002"
+      - "127.0.0.1:8002:8002"
     restart: unless-stopped
 
   ia-entrenamiento-worker:
-    build: ../project/servicios/ia-entrenamiento
+    build:
+      context: ../project/servicios/ia-entrenamiento
+      args:
+        VARIANTE_TORCH: cu128
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     command: ["python", "worker/entrenador.py"]
+    # El dataloader de YOLO le pasa las imágenes a sus procesos auxiliares
+    # (workers=2, ver worker/entrenador.py) por memoria compartida, y los 64 MB
+    # que Docker le da a /dev/shm por defecto no alcanzan: un lote de GPU (16
+    # imágenes de 640 px con sus máscaras) lo llena y el proceso muere con
+    # "Bus error ... out of shared memory" antes de la primera época. En CPU el
+    # lote es de 2 y entraba justo, así que el problema aparece recién en GPU.
+    shm_size: 2gb
     environment:
       MODELOS_DIR: /datos/modelos
       DATASETS_DIR: /datos/datasets
       TRABAJOS_DIR: /datos/trabajos
+      # Imágenes por lote en GPU. 16 a 640 px entra con holgura en 8 GB de VRAM;
+      # bajarlo si el entrenamiento se cae con "CUDA out of memory".
+      LOTE_GPU: 16
     volumes:
       - ../datos/modelos:/datos/modelos
       - ../datos/datasets:/datos/datasets
       - ../datos/trabajos:/datos/trabajos
+      - ../contratos:/contratos:ro
     depends_on:
       - ia-entrenamiento-api
     restart: unless-stopped
 
+  entrenador-web:
+    build: ../project/servicios/entrenador-web
+    ports:
+      - "8003:80"
+    depends_on:
+      - ia-entrenamiento-api
+    restart: unless-stopped
