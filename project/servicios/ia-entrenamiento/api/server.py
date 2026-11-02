@@ -41,7 +41,8 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="AgroVision - IA Entrenamiento API", version="1.0.0", lifespan=lifespan)
+# Misma versión que contratos/ia-entrenamiento.openapi.yaml: verificar_contratos.py lo controla.
+app = FastAPI(title="AgroVision - IA Entrenamiento API", version="1.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

@@ -17,10 +17,19 @@ services:
       retries: 10
     restart: unless-stopped
 
+  # Descubrimiento de servicios (Entrega 4 de PDC): ia-inferencia se anuncia
+  # sola acá y cliente-api le pregunta qué instancias están vivas.
+  registro-servicios:
+    build: ../project/servicios/registro-servicios
+    ports:
+      - "8003:8003"
+    restart: unless-stopped
+
   ia-inferencia:
     build: ../project/servicios/ia-inferencia
     environment:
       MODEL_PATH: /datos/modelos/activo/best.pt
+      REGISTRO_URL: http://registro-servicios:8003
     volumes:
       - ../datos/modelos:/datos/modelos:ro
     ports:
@@ -31,7 +40,8 @@ services:
     build: ../project/servicios/cliente-api
     user: "${UID:-1000}:${GID:-1000}"
     environment:
-      IA_INFERENCIA_URL: http://ia-inferencia:8001
+      IA_INFERENCIA_URL: http://ia-inferencia:8001  # respaldo si el registro no responde
+      REGISTRO_URL: http://registro-servicios:8003
       UPLOAD_DIR: /datos/ortomosaicos
       MAX_UPLOAD_MB: 8192
       TAMANO_LOTE_MAX: 4

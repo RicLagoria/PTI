@@ -4,6 +4,7 @@ uvicorn==0.39.0
 starlette==0.49.3
 pydantic==2.13.4
 python-multipart>=0.0.9
+httpx>=0.27.0  # anuncio en registro-servicios
 
 # --- Visión e Inferencia IA ---
 ultralytics==8.4.121
