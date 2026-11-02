@@ -241,3 +241,8 @@ node_modules/
 /docs/imagenes_para_entrenar/
 /dataset_tiles/
 /dataset_segmentado/
+
+#aportes
+*.zip
+*.tif
+*.tif.aux.xml
