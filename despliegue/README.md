@@ -34,4 +34,10 @@ sin el plano Cliente levantado**, porque es el único que puede emitir un token.
 El plano IA sí arranca solo (`ia-inferencia` sigue sirviendo análisis), pero
 nadie puede entrar al entrenador.
 
+## Instalarlo en un servidor
+
+Los comandos paso a paso, para una máquina con GPU y para una sin, más cómo
+llevar los modelos ya entrenados al servidor que analiza:
+**[docs/instalacion-servidor.md](../docs/instalacion-servidor.md)**.
+
 Diseño completo: [docs/arquitectura.md](../docs/arquitectura.md).
