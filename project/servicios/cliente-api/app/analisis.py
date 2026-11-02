@@ -14,6 +14,7 @@ except ImportError:
         sys.path.insert(0, str(ruta_compartido))
     from py_geo.geo import GeoHandler
 
+from bloqueo import escribir_json_atomico
 from cliente_ia import ClienteIA
 from georref import traducir_deteccion
 
@@ -108,8 +109,8 @@ def ejecutar_inspeccion_segmentada(
     finally:
         geo.cerrar()
         try:
-            with open(ruta_json, "w", encoding="utf-8") as f:
-                json.dump(estructura_datos, f, indent=2)
+            # Atómico: un lector nunca ve el JSON a medias (ver bloqueo.py)
+            escribir_json_atomico(ruta_json, estructura_datos)
             print(f"[GUARDADO] Detecciones actualizadas en {ruta_json}")
         except Exception as e:
             print(f"[ERROR] No se pudo guardar {ruta_json}: {e}")
