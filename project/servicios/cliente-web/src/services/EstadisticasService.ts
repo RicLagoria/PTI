@@ -41,6 +41,11 @@ export interface Estadisticas {
     promedio_seg_por_celda: number | null;
     historial: EficienciaPunto[];
   };
+  confiabilidad: {
+    pct_sin_error: number | null;
+    completados: number;
+    con_error: number;
+  };
 }
 
 async function manejarError(res: Response, mensajeDefault: string): Promise<never> {
