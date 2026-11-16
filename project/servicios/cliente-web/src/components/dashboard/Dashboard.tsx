@@ -209,7 +209,7 @@ export default function Dashboard() {
         {
           label: "Cobertura de malezas",
           value: sinAnalisis ? "—" : `${pctCobertura}%`,
-          meta: "Seguimiento de tendencia (reducir interanual con manejo localizado, a validar en campo)",
+          meta: "Seguimiento de tendencia (reducir interanual con manejo localizado, a validar en campo), con primera revisión en diciembre de 2026",
           cumplida: null,
           sub: "Celdas con maleza / celdas inspeccionadas, último análisis de cada imagen",
           tip: "De cada ortomosaico se toma solo su análisis completo más reciente (no se suman corridas repetidas). Es el % de esas celdas donde se detectó al menos una maleza.",
@@ -233,7 +233,7 @@ export default function Dashboard() {
         {
           label: "Confianza del modelo",
           value: modeloReciente ? `${Math.round(modeloReciente.confianza_promedio)}%` : "—",
-          meta: "Seguimiento de tendencia: se espera que suba con cada reentrenamiento (no equivale al mAP@0.5 de una evaluación independiente)",
+          meta: "Seguimiento de tendencia: se espera que suba con cada reentrenamiento (no equivale al mAP@0.5 de una evaluación independiente), con primera revisión en diciembre de 2026",
           cumplida: null,
           sub: modeloReciente ? `Versión ${modeloReciente.version_modelo} · ${modeloReciente.corridas} corridas` : "Sin corridas con detecciones aún",
           tip: "Promedio de confianza de todas las detecciones hechas con la versión de modelo que corrió más recientemente. Depende también del umbral mínimo usado en cada análisis: un umbral bajo admite detecciones más dudosas y baja el promedio sin que el modelo haya empeorado.",
@@ -254,7 +254,7 @@ export default function Dashboard() {
         {
           label: "Tiempo de análisis por celda",
           value: stats?.eficiencia.promedio_seg_por_celda != null ? `${stats.eficiencia.promedio_seg_por_celda}s` : "—",
-          meta: "Meta: ≤ 100s por celda",
+          meta: "Meta: ≤ 100s por celda, a cumplir para diciembre de 2026",
           cumplida: stats?.eficiencia.promedio_seg_por_celda != null ? stats.eficiencia.promedio_seg_por_celda <= 100 : null,
           sub: "Promedio de las últimas 10 corridas completas",
           tip: "Tiempo total del análisis dividido su cantidad de celdas, para las últimas 10 corridas completas.",
@@ -270,7 +270,7 @@ export default function Dashboard() {
         {
           label: "Análisis sin error",
           value: stats?.confiabilidad.pct_sin_error != null ? `${stats.confiabilidad.pct_sin_error}%` : "—",
-          meta: "Meta: ≥ 95% sin error",
+          meta: "Meta: ≥ 95% sin error, a cumplir para diciembre de 2026",
           cumplida: stats?.confiabilidad.pct_sin_error != null ? stats.confiabilidad.pct_sin_error >= 95 : null,
           sub: stats ? `${completados} completos · ${conError} con error` : "—",
           tip: "% de análisis que terminaron en estado \"completo\" sobre el total de análisis finalizados (completos + con error). Mide la confiabilidad del pipeline.",
