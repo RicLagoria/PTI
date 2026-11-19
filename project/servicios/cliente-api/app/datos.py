@@ -677,6 +677,15 @@ def estadisticas_dashboard() -> Dict:
             """
         ).fetchall()
 
+        por_estado = con.execute(
+            """
+            SELECT estado, COUNT(*) AS cantidad
+            FROM analisis
+            WHERE estado IN ('completo', 'error')
+            GROUP BY estado
+            """
+        ).fetchall()
+
     total_celdas_activas = por_clase[0]["total_celdas_activas"] if por_clase else 0
     maleza = next((f for f in por_clase if f["clase"] == "maleza"), None)
     pct_cobertura = (
@@ -697,6 +706,11 @@ def estadisticas_dashboard() -> Dict:
         if historial_eficiencia
         else None
     )
+
+    completados = next((f["cantidad"] for f in por_estado if f["estado"] == "completo"), 0)
+    con_error = next((f["cantidad"] for f in por_estado if f["estado"] == "error"), 0)
+    total_finalizados = completados + con_error
+    pct_sin_error = round(100 * completados / total_finalizados, 1) if total_finalizados > 0 else None
 
     return {
         "total_ortomosaicos": totales["total_ortomosaicos"],
@@ -722,5 +736,10 @@ def estadisticas_dashboard() -> Dict:
         "eficiencia": {
             "promedio_seg_por_celda": promedio_seg_por_celda,
             "historial": historial_eficiencia,
+        },
+        "confiabilidad": {
+            "pct_sin_error": pct_sin_error,
+            "completados": completados,
+            "con_error": con_error,
         },
     }
