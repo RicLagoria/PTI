@@ -24,6 +24,8 @@ DOCUMENTOS = [
     ("entrega-2-infraestructura/informe.md", "Tarea2-Informe-Infraestructura.pdf"),
     ("entrega-3-comunicacion/README.md", "Tarea3-Certificado-COMPLETO.pdf"),
     ("entrega-3-comunicacion/informe.md", "Tarea3-Informe-Comunicacion.pdf"),
+    ("entrega-4-middleware/README.md", "Tarea4-Certificado-COMPLETO.pdf"),
+    ("entrega-4-middleware/informe.md", "Tarea4-Informe-Middleware.pdf"),
 ]
 
 NAVEGADORES = [

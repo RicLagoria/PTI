@@ -1,8 +1,21 @@
 services:
+  # Descubrimiento de servicios (Entrega 4 de PDC). Publicado para que el plano
+  # Cliente, en otra máquina, pueda preguntar por las instancias de inferencia.
+  registro-servicios:
+    build: ../project/servicios/registro-servicios
+    ports:
+      - "8003:8003"
+    restart: unless-stopped
+
   ia-inferencia:
     build: ../project/servicios/ia-inferencia
     environment:
       MODEL_PATH: /datos/modelos/activo/best.pt
+      REGISTRO_URL: http://registro-servicios:8003
+      # Con los planos en máquinas distintas, la IP interna del contenedor no
+      # le sirve al plano Cliente: anunciar la dirección pública, p. ej.
+      # URL_ANUNCIADA=http://ia.ejemplo.com:8001. Vacía = IP del contenedor.
+      URL_ANUNCIADA: "${URL_ANUNCIADA:-}"
     volumes:
       - ../datos/modelos:/datos/modelos:ro
     ports:

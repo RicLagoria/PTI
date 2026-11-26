@@ -1,0 +1,227 @@
+openapi: 3.1.0
+info:
+  title: AgroVision - Registro de servicios
+  description: 'Descubrimiento de servicios: cada instancia se anuncia con PUT y lo repite como latido; si no late
+
+    durante REGISTRO_TTL_S segundos se la da por caída. Los consumidores consultan las instancias vivas
+
+    por nombre lógico (GET /servicios/{nombre}). Ver docs/pdc/entrega-4-middleware.'
+  version: 1.0.0
+paths:
+  /salud:
+    get:
+      summary: Salud
+      operationId: salud_salud_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /servicios/{nombre}/instancias/{instancia_id}:
+    put:
+      summary: Anunciar
+      description: 'Alta o latido de una instancia. Es idempotente: la primera llamada la
+
+        registra y las siguientes renuevan su vencimiento (y actualizan la URL si cambió).'
+      operationId: anunciar_servicios__nombre__instancias__instancia_id__put
+      parameters:
+      - name: nombre
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9-]{0,62}$
+          title: Nombre
+      - name: instancia_id
+        in: path
+        required: true
+        schema:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9-]{0,62}$
+          title: Instancia Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Anuncio'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Instancia'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    delete:
+      summary: Retirar
+      description: Baja ordenada (al apagarse). Si la instancia ya no estaba, también responde 204.
+      operationId: retirar_servicios__nombre__instancias__instancia_id__delete
+      parameters:
+      - name: nombre
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Nombre
+      - name: instancia_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Instancia Id
+      responses:
+        '204':
+          description: Successful Response
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /servicios/{nombre}:
+    get:
+      summary: Consultar
+      description: 'Instancias vivas del servicio. La lista puede venir vacía: decide el consumidor.'
+      operationId: consultar_servicios__nombre__get
+      parameters:
+      - name: nombre
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Nombre
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Servicio'
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /servicios:
+    get:
+      summary: Listar
+      description: Todos los servicios con al menos una instancia viva.
+      operationId: listar_servicios_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/Servicio'
+                type: array
+                title: Response Listar Servicios Get
+components:
+  schemas:
+    Anuncio:
+      properties:
+        url:
+          type: string
+          pattern: ^https?://
+          title: Url
+          examples:
+          - http://172.18.0.5:8001
+        metadatos:
+          additionalProperties:
+            type: string
+          type: object
+          title: Metadatos
+          examples:
+          - version: 1.1.0
+      type: object
+      required:
+      - url
+      title: Anuncio
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    Instancia:
+      properties:
+        id:
+          type: string
+          title: Id
+        url:
+          type: string
+          title: Url
+        metadatos:
+          additionalProperties:
+            type: string
+          type: object
+          title: Metadatos
+        ultimo_latido:
+          type: number
+          title: Ultimo Latido
+          description: Época UNIX del último anuncio recibido.
+        vence_en_s:
+          type: number
+          title: Vence En S
+          description: Segundos que quedan antes de darla por caída.
+      type: object
+      required:
+      - id
+      - url
+      - metadatos
+      - ultimo_latido
+      - vence_en_s
+      title: Instancia
+    Servicio:
+      properties:
+        nombre:
+          type: string
+          title: Nombre
+        instancias:
+          items:
+            $ref: '#/components/schemas/Instancia'
+          type: array
+          title: Instancias
+      type: object
+      required:
+      - nombre
+      - instancias
+      title: Servicio
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError

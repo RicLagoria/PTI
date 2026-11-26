@@ -1,0 +1,10 @@
+$ python docs/pdc/entrega-4-middleware/demo_contratos.py   (02/11/2026, antes de corregir /salud)
+== 1) Verifico los cuatro servicios contra contratos/
+✓ registro-servicios (http://127.0.0.1:8203) cumple registro-servicios.openapi.yaml: 5 operaciones, versión y parámetros
+✓ ia-inferencia (http://127.0.0.1:8201) cumple ia-inferencia.openapi.yaml: 3 operaciones, versión y parámetros
+✗ ia-entrenamiento (http://127.0.0.1:8202) contra ia-entrenamiento.openapi.yaml: 1 diferencia(s)
+    - GET /salud: el servicio la expone pero el contrato no la documenta
+✓ cliente-api (http://127.0.0.1:8200) cumple cliente-api.openapi.yaml: 15 operaciones, versión y parámetros
+
+1 DIFERENCIA(S): el contrato y el código no coinciden
+   código de salida: 1

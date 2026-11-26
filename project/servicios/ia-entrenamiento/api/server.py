@@ -45,7 +45,8 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="AgroVision - IA Entrenamiento API", version="1.0.0", lifespan=lifespan)
+# Misma versión que contratos/ia-entrenamiento.openapi.yaml: verificar_contratos.py lo controla.
+app = FastAPI(title="AgroVision - IA Entrenamiento API", version="1.2.1", lifespan=lifespan)
 
 # Antes aceptaba cualquier origen ("*"). Con login de por medio se restringe,
 # igual que en cliente-api: ENTRENADOR_ORIGIN apunta a donde vive

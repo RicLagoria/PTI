@@ -16,13 +16,13 @@ info:
       disponible lo dice `GET /dispositivos`.
     - **Hasta cuándo** (`epocas` y `paciencia`): `epocas` es el tope y `paciencia` corta
       antes si el mAP de validación deja de mejorar.
-  version: 1.2.0
+  version: 1.2.1
 
 # Todos los endpoints piden el token del sitio de análisis. Las cuentas son las
 # mismas, pero este servicio no las conoce: quien valida usuario y contraseña es
 # cliente-api (POST /auth/login, que no es parte de este contrato) y acá solo se
-# verifica la firma del JWT con el mismo JWT_SECRET. GET /salud es la excepción y
-# no está en este contrato.
+# verifica la firma del JWT con el mismo JWT_SECRET. GET /salud es la excepción:
+# es público (security: []) para que los healthchecks no necesiten token.
 security:
   - tokenCliente: []
 
@@ -40,6 +40,26 @@ components:
         `GET /modelos/{v}/imagenes/{nombre}` (`<img src>`).
 
 paths:
+  /salud:
+    get:
+      summary: Estado del servicio
+      description: Sonda de vida para healthchecks y para verificar que la API responde.
+      operationId: getSalud
+      security: []
+      responses:
+        '200':
+          description: Servicio operativo
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  estado:
+                    type: string
+                    example: ok
+                  servicio:
+                    type: string
+                    example: ia-entrenamiento-api
   /clases:
     get:
       summary: Taxonomía canónica de clases

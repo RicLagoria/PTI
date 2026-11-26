@@ -1,11 +1,26 @@
+from contextlib import asynccontextmanager
 from typing import List, Optional
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from anuncio import Anunciador
 from detector import FieldDetector
 
-app = FastAPI(title="AgroVision - Servicio de Inferencia IA", version="1.0.0")
+# Misma versión que contratos/ia-inferencia.openapi.yaml: verificar_contratos.py lo controla.
+VERSION_CONTRATO = "1.1.0"
+
+
+@asynccontextmanager
+async def ciclo_de_vida(_app):
+    """Se anuncia en registro-servicios al arrancar y se da de baja al apagarse."""
+    anunciador = Anunciador(metadatos={"version_contrato": VERSION_CONTRATO})
+    anunciador.iniciar()
+    yield
+    anunciador.detener()
+
+
+app = FastAPI(title="AgroVision - Servicio de Inferencia IA", version=VERSION_CONTRATO, lifespan=ciclo_de_vida)
 
 app.add_middleware(
     CORSMiddleware,

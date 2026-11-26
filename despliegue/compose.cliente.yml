@@ -23,6 +23,10 @@ services:
     user: "${UID:-1000}:${GID:-1000}"
     environment:
       IA_INFERENCIA_URL: "${IA_INFERENCIA_URL:-http://localhost:8001}"
+      # Opcional: registro del plano IA (p. ej. http://ia.ejemplo.com:8003). Si
+      # está, las instancias de inferencia se descubren ahí; IA_INFERENCIA_URL
+      # queda como respaldo.
+      REGISTRO_URL: "${REGISTRO_URL:-}"
       UPLOAD_DIR: /datos/ortomosaicos
       MAX_UPLOAD_MB: 8192
       TAMANO_LOTE_MAX: 4

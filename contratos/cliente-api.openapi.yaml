@@ -1,0 +1,461 @@
+openapi: 3.1.0
+info:
+  title: AgroVision - Cliente API
+  version: 1.0.0
+  description: 'API del plano Cliente que consume cliente-web: login con JWT, carga de ortomosaicos (GeoTIFF→COG),
+
+    teselas XYZ, análisis (SSE o por lotes), historial, exportación y estadísticas.
+
+
+    Línea base generada del código el 02/11/2026 (Entrega 4 de PDC). Desde entonces es la referencia:
+
+    contratos/verificar_contratos.py falla si el código se aparta de este archivo.'
+paths:
+  /salud:
+    get:
+      summary: Salud
+      operationId: salud_salud_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /auth/login:
+    post:
+      summary: Iniciar Sesion
+      description: Valida usuario/contraseña contra la base y devuelve un JWT + el perfil.
+      operationId: iniciar_sesion_auth_login_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CredencialesLogin'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /auth/yo:
+    get:
+      summary: Perfil Actual
+      description: El front lo usa para refrescar los datos del perfil sin loguear de nuevo.
+      operationId: perfil_actual_auth_yo_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /imagenes:
+    post:
+      summary: Subir Imagen
+      description: 'Recibe el GeoTIFF como cuerpo crudo de la petición y lo escribe a disco por partes.
+
+        Al terminar lo valida, lo convierte a COG si hace falta, y registra la
+
+        metadata en la tabla ortomosaicos (el .tif en sí sigue solo en disco).'
+      operationId: subir_imagen_imagenes_post
+      parameters:
+      - name: nombre
+        in: query
+        required: false
+        schema:
+          type: string
+          default: ortomosaico.tif
+          title: Nombre
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+    get:
+      summary: Listar Imagenes
+      description: Imágenes ya subidas por cualquiera del equipo (no son privadas por usuario).
+      operationId: listar_imagenes_imagenes_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+  /imagenes/{imagen_id}/tiles/{z}/{x}/{y}.png:
+    get:
+      summary: Obtener Tesela
+      description: Lee bajo demanda los píxeles para el nivel de zoom Z y coords X/Y desde el COG.
+      operationId: obtener_tesela_imagenes__imagen_id__tiles__z___x___y__png_get
+      parameters:
+      - name: z
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Z
+      - name: x
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: X
+      - name: y
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Y
+      - name: imagen_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Imagen Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /imagenes/{imagen_id}/metadata:
+    get:
+      summary: Obtener Metadata
+      description: Devuelve las coordenadas envolventes y dimensiones del ortomosaico.
+      operationId: obtener_metadata_imagenes__imagen_id__metadata_get
+      parameters:
+      - name: imagen_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Imagen Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /imagenes/{imagen_id}/analizar-stream:
+    get:
+      summary: Analizar Campo Stream
+      description: 'Consume el generador de analisis.py y transmite cada bloque vía Server-Sent Events.
+
+        Cada corrida queda guardada en la tabla analisis (no pisa la anterior).'
+      operationId: analizar_campo_stream_imagenes__imagen_id__analizar_stream_get
+      parameters:
+      - name: imagen_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Imagen Id
+      - name: cuadrante
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Cuadrante
+      - name: conf
+        in: query
+        required: false
+        schema:
+          type: number
+          default: 0.1
+          title: Conf
+      - name: escalas
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^[1-8](,[1-8])*$
+          default: '1'
+          title: Escalas
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /imagenes/{imagen_id}/analizar:
+    post:
+      summary: Analizar Campo Completo
+      description: Conserva la ejecución tradicional acumulando todos los bloques antes de responder.
+      operationId: analizar_campo_completo_imagenes__imagen_id__analizar_post
+      parameters:
+      - name: imagen_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Imagen Id
+      - name: cuadrante
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Cuadrante
+      - name: conf
+        in: query
+        required: false
+        schema:
+          type: number
+          default: 0.1
+          title: Conf
+      - name: escalas
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^[1-8](,[1-8])*$
+          default: '1'
+          title: Escalas
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /imagenes/{imagen_id}/analisis:
+    get:
+      summary: Listar Historial Analisis
+      description: Todas las corridas anteriores sobre esta imagen, más reciente primero.
+      operationId: listar_historial_analisis_imagenes__imagen_id__analisis_get
+      parameters:
+      - name: imagen_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Imagen Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /imagenes/{imagen_id}/analisis/{analisis_id}:
+    get:
+      summary: Obtener Analisis Pasado
+      description: Para volver a ver un análisis viejo sin tener que re-ejecutarlo.
+      operationId: obtener_analisis_pasado_imagenes__imagen_id__analisis__analisis_id__get
+      parameters:
+      - name: imagen_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Imagen Id
+      - name: analisis_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Analisis Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /imagenes/{imagen_id}/analisis/{analisis_id}/exportar.geojson:
+    get:
+      summary: Exportar Geojson
+      operationId: exportar_geojson_imagenes__imagen_id__analisis__analisis_id__exportar_geojson_get
+      parameters:
+      - name: imagen_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Imagen Id
+      - name: analisis_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Analisis Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /imagenes/{imagen_id}/analisis/{analisis_id}/exportar.csv:
+    get:
+      summary: Exportar Csv
+      operationId: exportar_csv_imagenes__imagen_id__analisis__analisis_id__exportar_csv_get
+      parameters:
+      - name: imagen_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Imagen Id
+      - name: analisis_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Analisis Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /imagenes/{imagen_id}/analisis/{analisis_id}/exportar.pdf:
+    get:
+      summary: Exportar Pdf
+      description: 'Informe visual: la imagen del campo con las detecciones marcadas, no solo datos crudos.'
+      operationId: exportar_pdf_imagenes__imagen_id__analisis__analisis_id__exportar_pdf_get
+      parameters:
+      - name: imagen_id
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Imagen Id
+      - name: analisis_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Analisis Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '422':
+          description: Validation Error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+  /estadisticas:
+    get:
+      summary: Estadisticas
+      description: 'Los KPI reales del dashboard: cobertura, confianza del modelo, eficiencia del pipeline.'
+      operationId: estadisticas_estadisticas_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+components:
+  schemas:
+    CredencialesLogin:
+      properties:
+        usuario:
+          type: string
+          title: Usuario
+        contrasena:
+          type: string
+          title: Contrasena
+      type: object
+      required:
+      - usuario
+      - contrasena
+      title: CredencialesLogin
+    HTTPValidationError:
+      properties:
+        detail:
+          items:
+            $ref: '#/components/schemas/ValidationError'
+          type: array
+          title: Detail
+      type: object
+      title: HTTPValidationError
+    ValidationError:
+      properties:
+        loc:
+          items:
+            anyOf:
+            - type: string
+            - type: integer
+          type: array
+          title: Location
+        msg:
+          type: string
+          title: Message
+        type:
+          type: string
+          title: Error Type
+        input:
+          title: Input
+        ctx:
+          type: object
+          title: Context
+      type: object
+      required:
+      - loc
+      - msg
+      - type
+      title: ValidationError

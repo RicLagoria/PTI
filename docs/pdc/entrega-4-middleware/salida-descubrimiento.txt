@@ -1,0 +1,47 @@
+
+== 0) Arranco registro-servicios (TTL de 6 s) y dos instancias de ia-inferencia: A y B
+
+== 1) Alta automática: nadie las cargó a mano, se anunciaron solas
+   ia-a (http://127.0.0.1:8101, vence en 4.13 s)
+   ia-b (http://127.0.0.1:8102, vence en 5.31 s)
+
+== 2) Reparto: el cliente solo sabe el nombre 'ia-inferencia'
+   GET /modelo -> http://127.0.0.1:8101 (modelo v1) | POST /detectar -> http://127.0.0.1:8102 (0 detecciones)
+   GET /modelo -> http://127.0.0.1:8101 (modelo v1) | POST /detectar -> http://127.0.0.1:8102 (0 detecciones)
+   GET /modelo -> http://127.0.0.1:8101 (modelo v1) | POST /detectar -> http://127.0.0.1:8102 (0 detecciones)
+   GET /modelo -> http://127.0.0.1:8101 (modelo v1) | POST /detectar -> http://127.0.0.1:8102 (0 detecciones)
+
+== 3) Caída abrupta: kill -9 a A (no llega a darse de baja)
+   el registro todavía la lista (su TTL no venció):
+   ia-a (http://127.0.0.1:8101, vence en 5.89 s)
+   ia-b (http://127.0.0.1:8102, vence en 5.06 s)
+[AVISO] ia-inferencia en http://127.0.0.1:8101 no responde ([Errno 111] Connection refused); pruebo otra instancia.
+   GET /modelo -> http://127.0.0.1:8102 (modelo v1) | POST /detectar -> http://127.0.0.1:8102 (0 detecciones)
+[AVISO] ia-inferencia en http://127.0.0.1:8101 no responde ([Errno 111] Connection refused); pruebo otra instancia.
+   GET /modelo -> http://127.0.0.1:8102 (modelo v1) | POST /detectar -> http://127.0.0.1:8102 (0 detecciones)
+[AVISO] ia-inferencia en http://127.0.0.1:8101 no responde ([Errno 111] Connection refused); pruebo otra instancia.
+   GET /modelo -> http://127.0.0.1:8102 (modelo v1) | POST /detectar -> http://127.0.0.1:8102 (0 detecciones)
+[AVISO] ia-inferencia en http://127.0.0.1:8101 no responde ([Errno 111] Connection refused); pruebo otra instancia.
+   GET /modelo -> http://127.0.0.1:8102 (modelo v1) | POST /detectar -> http://127.0.0.1:8102 (0 detecciones)
+
+== 4) Vencimiento: espero 7 s sin latidos de A
+   ia-b (http://127.0.0.1:8102, vence en 4.85 s)
+
+== 5) Instancia nueva C (aparece sola) y apagado ordenado de B (se retira al instante)
+   con C arriba:
+   ia-b (http://127.0.0.1:8102, vence en 5.6 s)
+   ia-c (http://127.0.0.1:8199, vence en 5.18 s)
+   con B apagada con SIGTERM:
+   ia-c (http://127.0.0.1:8199, vence en 4.89 s)
+   GET /modelo -> http://127.0.0.1:8199 (modelo v1) | POST /detectar -> http://127.0.0.1:8199 (0 detecciones)
+   GET /modelo -> http://127.0.0.1:8199 (modelo v1) | POST /detectar -> http://127.0.0.1:8199 (0 detecciones)
+
+== 6) Registro caído: el cliente vuelve a IA_INFERENCIA_URL (que hoy es C) y sigue
+[DESCUBRIMIENTO] Registro no disponible ([Errno 111] Connection refused); uso la URL fija.
+[DESCUBRIMIENTO] Registro no disponible ([Errno 111] Connection refused); uso la URL fija.
+   GET /modelo -> http://127.0.0.1:8199 (modelo v1) | POST /detectar -> http://127.0.0.1:8199 (0 detecciones)
+[DESCUBRIMIENTO] Registro no disponible ([Errno 111] Connection refused); uso la URL fija.
+[DESCUBRIMIENTO] Registro no disponible ([Errno 111] Connection refused); uso la URL fija.
+   GET /modelo -> http://127.0.0.1:8199 (modelo v1) | POST /detectar -> http://127.0.0.1:8199 (0 detecciones)
+
+FIN: el consumidor nunca tuvo configurada la URL de A ni de B.

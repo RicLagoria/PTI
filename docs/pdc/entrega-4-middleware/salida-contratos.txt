@@ -1,0 +1,32 @@
+== 0) Levanto los cuatro servicios
+   registro-servicios escuchando en :8203
+   ia-inferencia escuchando en :8201
+   ia-entrenamiento escuchando en :8202
+   cliente-api escuchando en :8200
+
+== 1) Verifico los cuatro servicios contra contratos/
+✓ registro-servicios (http://127.0.0.1:8203) cumple registro-servicios.openapi.yaml: 5 operaciones, versión y parámetros
+✓ ia-inferencia (http://127.0.0.1:8201) cumple ia-inferencia.openapi.yaml: 3 operaciones, versión y parámetros
+✓ ia-entrenamiento (http://127.0.0.1:8202) cumple ia-entrenamiento.openapi.yaml: 17 operaciones, versión y parámetros
+✓ cliente-api (http://127.0.0.1:8200) cumple cliente-api.openapi.yaml: 15 operaciones, versión y parámetros
+
+CONTRATOS OK
+   código de salida: 0
+
+== 2) Simulo cambios de interfaz sin acuerdo: otro integrante edita el contrato
+   - ia-inferencia: el parámetro 'conf' de /detectar pasa a llamarse 'confianza'
+   - cliente-api: se agrega una ruta que el servicio no implementa
+   - registro-servicios: se sube la versión sin cambiar el código
+✗ registro-servicios (http://127.0.0.1:8203) contra registro-servicios.openapi.yaml: 1 diferencia(s)
+    - versión: contrato 2.0.0 ≠ código 1.0.0
+✗ ia-inferencia (http://127.0.0.1:8201) contra ia-inferencia.openapi.yaml: 2 diferencia(s)
+    - POST /detectar: el parámetro query:confianza del contrato no existe en el servicio
+    - POST /detectar: parámetro opcional query:conf sin documentar
+✓ ia-entrenamiento (http://127.0.0.1:8202) cumple ia-entrenamiento.openapi.yaml: 17 operaciones, versión y parámetros
+✗ cliente-api (http://127.0.0.1:8200) contra cliente-api.openapi.yaml: 1 diferencia(s)
+    - POST /imagenes/{imagen_id}/borrar: está en el contrato pero el servicio no la tiene (rompe a quien la use)
+
+4 DIFERENCIA(S): el contrato y el código no coinciden
+   código de salida: 1
+
+RESULTADO: contratos reales -> 0 (0 = cumplen); contratos alterados -> 1 (1 = el verificador detectó la ruptura)
