@@ -1,0 +1,29 @@
+1 200 172.19.0.8:8000
+6 200 172.19.0.8:8000
+11 200 172.19.0.7:8000
+16 200 172.19.0.8:8000
+>>> pedido 21: se apaga de golpe la réplica /despliegue-cliente-api-2
+25 200 172.19.0.9:8000
+30 200 172.19.0.8:8000,172.19.0.7:8000
+35 200 172.19.0.9:8000
+40 200 172.19.0.7:8000
+45 200 172.19.0.9:8000
+50 200 172.19.0.7:8000
+55 200 172.19.0.9:8000
+60 200 172.19.0.7:8000
+
+Réplicas que atendieron ANTES de la caída:
+      5 172.19.0.7:8000
+     11 172.19.0.8:8000
+      4 172.19.0.9:8000
+Réplicas que atendieron DESPUÉS de la caída ("a,b" = probó a, falló, atendió b):
+     14 172.19.0.7:8000
+      6 172.19.0.8:8000,172.19.0.7:8000
+      2 172.19.0.8:8000,172.19.0.9:8000
+     18 172.19.0.9:8000
+
+Pedidos que pasaron por más de una réplica (el gateway probó la caída y reintentó en otra):
+8
+
+Resultado: 60 de 60 pedidos OK, 0 con error.
+Levantando de nuevo la réplica caída...

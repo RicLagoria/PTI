@@ -1,12 +1,13 @@
 import os
+import threading
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional
 
 import bcrypt
 import jwt
-import psycopg
 from fastapi import HTTPException, Request
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://agrovision:agrovision@db:5432/agrovision")
 JWT_SECRET = os.environ.get("JWT_SECRET", "agrovision-dev-secret-cambiar-en-produccion")
@@ -14,8 +15,32 @@ JWT_ALGORITMO = "HS256"
 JWT_HORAS_VALIDEZ = int(os.environ.get("JWT_HORAS_VALIDEZ", "12"))
 
 
+# Pool de conexiones (Entrega 6 de PDC). Antes cada pedido abría y cerraba su
+# propia conexión, y PostgreSQL crea un proceso por conexión: con 3 réplicas
+# bajo carga la base pasaba el 90 % de CPU solo en eso y era el cuello de
+# botella. Ahora cada réplica reusa unas pocas conexiones abiertas.
+# DB_POOL_MAX por réplica: con 3 réplicas son 3 x 10, lejos del tope de 100.
+_pool = ConnectionPool(
+    DATABASE_URL,
+    min_size=1,
+    max_size=int(os.environ.get("DB_POOL_MAX", "10")),
+    kwargs={"row_factory": dict_row},
+    open=False,
+)
+_apertura = threading.Lock()
+
+
 def _conexion():
-    return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+    """
+    Igual que antes se usa con `with _conexion() as con:`: al salir del bloque
+    hace commit (o rollback si hubo error) y devuelve la conexión al pool en
+    vez de cerrarla.
+    """
+    if _pool.closed:
+        with _apertura:
+            if _pool.closed:
+                _pool.open(wait=False)
+    return _pool.connection()
 
 
 # Alias público: datos.py lo usa para hablarle a las mismas tablas sin

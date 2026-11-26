@@ -1,0 +1,46 @@
+ Container despliegue-cliente-api-1 Running 
+Esperando que las 1 réplicas estén sanas...
+ Container despliegue-gateway-1 Restarting 
+ Container despliegue-gateway-1 Started 
+NAME                       STATUS
+despliegue-cliente-api-1   Up About a minute (healthy)
+=== 1 réplica(s), 10 usuarios ===
+=== 1 réplica(s), 20 usuarios ===
+time="2026-11-26T01:26:21Z" level=error msg="thresholds on metrics 'http_req_duration' have been crossed"
+=== 1 réplica(s), 40 usuarios ===
+time="2026-11-26T01:28:19Z" level=error msg="thresholds on metrics 'http_req_duration' have been crossed"
+ Container despliegue-cliente-api-1 Running 
+ Container despliegue-cliente-api-3 Creating 
+ Container despliegue-cliente-api-2 Creating 
+ Container despliegue-cliente-api-2 Created 
+ Container despliegue-cliente-api-3 Created 
+ Container despliegue-cliente-api-3 Starting 
+ Container despliegue-cliente-api-3 Started 
+ Container despliegue-cliente-api-2 Starting 
+ Container despliegue-cliente-api-2 Started 
+Esperando que las 3 réplicas estén sanas...
+ Container despliegue-gateway-1 Restarting 
+ Container despliegue-gateway-1 Started 
+NAME                       STATUS
+despliegue-cliente-api-1   Up 8 minutes (healthy)
+despliegue-cliente-api-2   Up 25 seconds (healthy)
+despliegue-cliente-api-3   Up 29 seconds (healthy)
+=== 3 réplica(s), 10 usuarios ===
+=== 3 réplica(s), 20 usuarios ===
+=== 3 réplica(s), 40 usuarios ===
+time="2026-11-26T01:34:52Z" level=error msg="thresholds on metrics 'http_req_duration' have been crossed"
+ Container despliegue-cliente-api-1 Running 
+ Container despliegue-cliente-api-2 Stopping 
+ Container despliegue-cliente-api-3 Stopping 
+ Container despliegue-cliente-api-3 Stopped 
+ Container despliegue-cliente-api-3 Removing 
+ Container despliegue-cliente-api-2 Stopped 
+ Container despliegue-cliente-api-2 Removing 
+ Container despliegue-cliente-api-3 Removed 
+ Container despliegue-cliente-api-2 Removed 
+Esperando que las 1 réplicas estén sanas...
+ Container despliegue-gateway-1 Restarting 
+ Container despliegue-gateway-1 Started 
+NAME                       STATUS
+despliegue-cliente-api-1   Up 14 minutes (healthy)
+Resúmenes en /c/Users/Santi/Desktop/Facultad/Semestre-10/PDC/repo-PTI/docs/pdc/entrega-6-patrones/carga/corrida-3-pool
