@@ -71,7 +71,7 @@ def perfil_actual(usuario=Depends(auth.usuario_actual)):
 # 1. CARGA Y LISTADO DE ORTOMOSAICOS
 # ==========================================================
 @app.post("/imagenes", status_code=201)
-async def subir_imagen(request: Request, nombre: str = "ortomosaico.tif", usuario=Depends(auth.usuario_actual)):
+async def subir_imagen(request: Request, nombre: str = "ortomosaico.tif", usuario=Depends(auth.requiere_rol("colaborador"))):
     """
     Recibe el GeoTIFF como cuerpo crudo de la petición y lo escribe a disco por partes.
     Al terminar lo valida, lo convierte a COG si hace falta, y registra la
@@ -179,8 +179,10 @@ def analizar_campo_stream(
     # campo por celda. "4,1" primero se aleja, para que las manchas más grandes
     # que una celda entren enteras, y después se acerca para las chicas.
     escalas: str = Query("1", pattern=r"^[1-8](,[1-8])*$"),
+    # Primero el rol y después si la imagen existe: así un lector recibe 403
+    # y no se entera de qué imágenes hay o no.
+    usuario=Depends(auth.requiere_rol("colaborador")),
     carpeta=Depends(carpeta_imagen),
-    usuario=Depends(auth.usuario_actual),
 ):
     """
     Consume el generador de analisis.py y transmite cada bloque vía Server-Sent Events.
@@ -221,8 +223,10 @@ def analizar_campo_completo(
     # campo por celda. "4,1" primero se aleja, para que las manchas más grandes
     # que una celda entren enteras, y después se acerca para las chicas.
     escalas: str = Query("1", pattern=r"^[1-8](,[1-8])*$"),
+    # Primero el rol y después si la imagen existe: así un lector recibe 403
+    # y no se entera de qué imágenes hay o no.
+    usuario=Depends(auth.requiere_rol("colaborador")),
     carpeta=Depends(carpeta_imagen),
-    usuario=Depends(auth.usuario_actual),
 ):
     """Conserva la ejecución tradicional acumulando todos los bloques antes de responder."""
     resultado_final = None

@@ -43,6 +43,7 @@ import {
   type AnalisisHistorial,
   type AnalisisDetalle,
 } from "../../services/ImagenesService";
+import { useAppContext } from "../../context/AppContext";
 
 const PALETA_CLASES = ["#34d399", "#60a5fa", "#f472b6", "#fbbf24", "#a78bfa", "#f87171", "#22d3ee", "#fb923c"];
 const ALTO_MAX_MAPA = 560;
@@ -278,6 +279,10 @@ const ESTADO_ESTILO: Record<string, string> = {
 };
 
 export default function FieldView() {
+  // El rol lector solo mira: no sube ortomosaicos ni corre análisis nuevos.
+  // El backend igual lo bloquea (403); acá solo escondemos lo que no puede usar.
+  const { perfil } = useAppContext();
+  const soloLectura = perfil?.rol === "lector";
   const [imagenes, setImagenes] = useState<ImagenMeta[]>([]);
   const [imagenId, setImagenId] = useState<string | null>(null);
   const [meta, setMeta] = useState<ImagenMeta | null>(null);
@@ -519,6 +524,11 @@ export default function FieldView() {
               </select>
             </div>
 
+            {soloLectura ? (
+              <Chip color="default" variant="flat" startContent={<Eye className="h-4 w-4" />}>
+                Solo lectura: tu rol puede ver imágenes y análisis, no subir ni analizar
+              </Chip>
+            ) : (
             <div className="flex items-center gap-3">
               <label className="cursor-pointer rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-2.5 text-sm text-slate-600 transition-colors hover:border-emerald-400 hover:text-emerald-600 dark:border-slate-600 dark:bg-slate-700 dark:text-slate-300">
                 <input
@@ -541,6 +551,7 @@ export default function FieldView() {
                 {subiendo ? "Subiendo..." : "Subir"}
               </Button>
             </div>
+            )}
           </div>
 
           {subiendo && (
@@ -713,6 +724,11 @@ export default function FieldView() {
                     />
                   </div>
 
+                  {soloLectura ? (
+                    <p className="rounded-2xl bg-slate-100 p-3 text-center text-sm text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                      Tu rol es de solo lectura: podés ver el historial, pero no correr análisis nuevos.
+                    </p>
+                  ) : (
                   <Button
                     color="primary"
                     className="w-full dark:bg-blue-700 dark:text-blue-100 dark:hover:bg-blue-600"
@@ -721,6 +737,7 @@ export default function FieldView() {
                   >
                     {analizando ? "Analizando..." : "Analizar (en vivo)"}
                   </Button>
+                  )}
                 </div>
 
                 <AnimatePresence>

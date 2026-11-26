@@ -33,6 +33,7 @@ import {
 } from "../../services/EntrenamientoService";
 import { fecha, numero, plural, tamanoArchivo } from "../../utils/formato";
 import PanelError from "../comunes/PanelError";
+import { usePermisos } from "../../context/sesion";
 import { claseEtiqueta, claseTarjeta, claseTextoSuave } from "../comunes/estilos";
 
 type Fase = "elegir" | "subiendo" | "procesando";
@@ -89,6 +90,7 @@ function ConteoPorClase({ dataset }: { dataset: Dataset }) {
 }
 
 export default function Aportes() {
+  const { puedeAportar, esAdmin } = usePermisos();
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [clases, setClases] = useState<string[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -306,9 +308,10 @@ export default function Aportes() {
               <Progress aria-label="Procesando" label="Convirtiendo las anotaciones…" isIndeterminate color="primary" />
             )}
 
-            <Button color="primary" onPress={subir} isDisabled={!archivo || ocupado} isLoading={ocupado} className="dark:bg-blue-700">
+            <Button color="primary" onPress={subir} isDisabled={!puedeAportar || !archivo || ocupado} isLoading={ocupado} className="dark:bg-blue-700">
               Subir aporte
             </Button>
+            {!puedeAportar && <p className={`text-sm ${claseTextoSuave}`}>Tu rol es de solo lectura: no podés subir aportes.</p>}
 
             {errorSubida != null && <PanelError error={errorSubida} />}
 
@@ -391,7 +394,7 @@ export default function Aportes() {
                       <div className="flex shrink-0 gap-1">
                         {/* Un aporte derivado no se vuelve a derivar: sus imágenes ya
                             son ventanas y no llevan la posición de una tesela */}
-                        {!d.derivado_de && (
+                        {puedeAportar && !d.derivado_de && (
                           <Button
                             isIconOnly
                             size="sm"
@@ -403,6 +406,7 @@ export default function Aportes() {
                             <Layers className="h-4 w-4" />
                           </Button>
                         )}
+                        {esAdmin && (
                         <Button
                           isIconOnly
                           size="sm"
@@ -416,6 +420,7 @@ export default function Aportes() {
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
+                        )}
                       </div>
                     </div>
 

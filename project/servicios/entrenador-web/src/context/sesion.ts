@@ -21,3 +21,19 @@ export function useSesion(): Sesion {
   if (!contexto) throw new Error("useSesion se usó fuera de ProveedorSesion.");
   return contexto;
 }
+
+/**
+ * Qué puede hacer el usuario según su rol (el mismo criterio que la API):
+ *   lector       solo mira aportes, entrenamientos y modelos
+ *   colaborador  además sube aportes, deriva escalas y encola/cancela entrenamientos
+ *   admin        además borra aportes y activa modelos
+ * Es solo para no mostrar botones que la API va a rechazar con 403.
+ */
+export function usePermisos() {
+  const { perfil } = useSesion();
+  const rol = perfil?.rol;
+  return {
+    puedeAportar: rol === "colaborador" || rol === "admin",
+    esAdmin: rol === "admin",
+  };
+}

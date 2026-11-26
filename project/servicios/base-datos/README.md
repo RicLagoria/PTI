@@ -24,6 +24,7 @@ volumen de datos vacío:
   escalas distintas, así que `analisis.escala` pasa a ser `analisis.escalas` y
   cada detección guarda de qué pasada salió. Reemplaza a la columna de 04, que
   este archivo migra y borra.
+- `06_roles.sql` — el `rol` pasa a restringir acciones (lector, colaborador, admin) y se valida con una restricción `CHECK`.
 
 ## Aplicar una migración a una base que ya existe
 
@@ -35,6 +36,7 @@ que repetirlo no haga nada (`IF NOT EXISTS` en todo):
 docker compose -f despliegue/compose.dev.yml exec -T db psql -U agrovision -d agrovision < project/servicios/base-datos/init/03_segmentacion.sql
 docker compose -f despliegue/compose.dev.yml exec -T db psql -U agrovision -d agrovision < project/servicios/base-datos/init/04_escala.sql
 docker compose -f despliegue/compose.dev.yml exec -T db psql -U agrovision -d agrovision < project/servicios/base-datos/init/05_cascada.sql
+docker compose -f despliegue/compose.dev.yml exec -T db psql -U agrovision -d agrovision < project/servicios/base-datos/init/06_roles.sql
 ```
 
 Sin eso, `cliente-api` falla al guardar las detecciones de un análisis, porque

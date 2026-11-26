@@ -11,6 +11,7 @@ import { duracion, fecha, horaDentroDe, numero, plural, porcentaje } from "../..
 import Metrica from "../comunes/Metrica";
 import PanelError from "../comunes/PanelError";
 import { claseTextoSuave } from "../comunes/estilos";
+import { usePermisos } from "../../context/sesion";
 
 const ESTADOS: Record<EstadoTrabajo, { texto: string; color: "default" | "primary" | "success" | "danger" | "warning" }> = {
   pendiente: { texto: "En cola", color: "default" },
@@ -79,6 +80,7 @@ export default function TarjetaTrabajo({
   posicionEnCola?: number;
   onActualizado: (trabajo: Trabajo) => void;
 }) {
+  const { puedeAportar } = usePermisos();
   const estado = ESTADOS[trabajo.estado];
   const m = trabajo.metricas ?? {};
   // Corrió menos épocas de las pedidas: cortó el early stopping. Sin decirlo,
@@ -131,7 +133,7 @@ export default function TarjetaTrabajo({
             {estado.texto}
             {trabajo.estado === "pendiente" && posicionEnCola ? ` · ${posicionEnCola}º` : ""}
           </Chip>
-          {activo && (
+          {activo && puedeAportar && (
             <Button
               size="sm"
               variant="light"

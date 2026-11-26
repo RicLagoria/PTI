@@ -29,6 +29,7 @@ import { fecha, numero, plural, porcentaje } from "../../utils/formato";
 import Metrica from "../comunes/Metrica";
 import PanelError from "../comunes/PanelError";
 import { claseTarjeta, claseTextoSuave } from "../comunes/estilos";
+import { usePermisos } from "../../context/sesion";
 
 /** Diferencia de mAP50-95 contra el modelo activo, en puntos porcentuales. */
 function Diferencia({ modelo, activo }: { modelo: Modelo; activo?: Modelo }) {
@@ -52,6 +53,7 @@ function Diferencia({ modelo, activo }: { modelo: Modelo; activo?: Modelo }) {
 }
 
 export default function Modelos() {
+  const { esAdmin } = usePermisos();
   const [modelos, setModelos] = useState<Modelo[]>([]);
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -147,7 +149,7 @@ export default function Modelos() {
                       <Chip color="success" variant="flat" startContent={<CheckCircle2 className="h-3.5 w-3.5" />}>
                         Activo
                       </Chip>
-                    ) : (
+                    ) : esAdmin && (
                       <Button
                         size="sm"
                         color="primary"

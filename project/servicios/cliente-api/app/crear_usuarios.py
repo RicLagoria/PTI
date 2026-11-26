@@ -55,6 +55,14 @@ EQUIPO = [
         "rol": "colaborador",
         "password": "Lautaro2026!",
     },
+    # Cuenta de solo lectura para mostrar los roles en la demo: entra, ve todo
+    # y no puede subir ortomosaicos ni correr análisis (la API responde 403).
+    {
+        "username": "lector",
+        "nombre_completo": "Usuario de solo lectura",
+        "rol": "lector",
+        "password": "Lector2026!",
+    },
 ]
 
 

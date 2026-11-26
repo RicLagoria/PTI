@@ -54,3 +54,26 @@ def usuario_actual(request: Request) -> Dict:
         raise HTTPException(status_code=401, detail="Token inválido.")
     payload.pop("exp", None)
     return payload
+# Roles, de menor a mayor permiso. Cada nivel incluye lo del anterior:
+#   lector       ve dashboard, ortomosaicos, historial y exportaciones
+#   colaborador  además sube ortomosaicos y corre análisis (y entrena)
+#   admin        además borra aportes y activa modelos
+# El rol viaja dentro del JWT, así que verificarlo no toca la base.
+NIVEL_DE_ROL = {"lector": 0, "colaborador": 1, "admin": 2}
+
+
+def requiere_rol(minimo: str):
+    """
+    Dependency de FastAPI: además de un JWT válido exige un rol de al menos
+    `minimo`. Responde 403 (autenticado pero sin permiso), no 401.
+    Un rol desconocido en el token cuenta como el más bajo.
+    """
+    def _dependencia(request: Request) -> Dict:
+        usuario = usuario_actual(request)
+        if NIVEL_DE_ROL.get(usuario.get("rol"), 0) < NIVEL_DE_ROL[minimo]:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Tu rol ({usuario.get('rol')}) no puede hacer esto: hace falta {minimo} o superior.",
+            )
+        return usuario
+    return _dependencia

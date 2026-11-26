@@ -129,7 +129,7 @@ def subir_dataset(
     # Apagado por defecto: declarar fondo una imagen que nadie miró le enseña al
     # modelo que la maleza que hay ahí no es maleza. Lo pide quien sube.
     fondos_implicitos: bool = Form(False),
-    usuario=Depends(auth.usuario_actual),
+    usuario=Depends(auth.requiere_rol("colaborador")),
 ):
     if not (archivo.filename or "").lower().endswith(".zip"):
         raise HTTPException(status_code=400, detail="El dataset debe ser un archivo ZIP.")
@@ -164,7 +164,7 @@ def subir_dataset(
 
 
 @app.delete("/datasets/{id}", status_code=204)
-def eliminar_dataset(id: str, usuario=Depends(auth.usuario_actual)):
+def eliminar_dataset(id: str, usuario=Depends(auth.requiere_rol("admin"))):
     if not datasets.eliminar_dataset(id):
         raise HTTPException(status_code=404, detail="Dataset no encontrado.")
     return Response(status_code=204)
@@ -181,7 +181,7 @@ def ventanas_disponibles(id: str, usuario=Depends(auth.usuario_actual)):
 # Sin async, igual que la subida: pega y reescribe una imagen por ventana, y en
 # un endpoint async bloquearía el event loop mientras dura.
 @app.post("/datasets/{id}/ventanas", status_code=201)
-def generar_ventanas(id: str, solicitud: SolicitudVentanas, usuario=Depends(auth.usuario_actual)):
+def generar_ventanas(id: str, solicitud: SolicitudVentanas, usuario=Depends(auth.requiere_rol("colaborador"))):
     """
     Deriva un aporte de escala gruesa por cada escala pedida.
 
@@ -202,7 +202,7 @@ def listar_entrenamientos(usuario=Depends(auth.usuario_actual)):
 
 
 @app.post("/entrenamientos", status_code=202)
-def crear_entrenamiento(solicitud: SolicitudEntrenamiento, usuario=Depends(auth.usuario_actual)):
+def crear_entrenamiento(solicitud: SolicitudEntrenamiento, usuario=Depends(auth.requiere_rol("colaborador"))):
     ids = list(dict.fromkeys(solicitud.datasets))
     inexistentes = [i for i in ids if datasets.carpeta_de(i) is None]
     if inexistentes:
@@ -286,7 +286,7 @@ async def stream_entrenamiento(id: str, usuario=Depends(auth.usuario_actual)):
 
 
 @app.post("/entrenamientos/{id}/cancelar")
-def cancelar_entrenamiento(id: str, usuario=Depends(auth.usuario_actual)):
+def cancelar_entrenamiento(id: str, usuario=Depends(auth.requiere_rol("colaborador"))):
     """
     Pendiente: se cancela en el momento. En ejecución: el worker corta en el próximo
     lote y no publica ninguna versión (mientras tanto el trabajo trae
@@ -335,7 +335,7 @@ def imagen_modelo(v: str, nombre: str, usuario=Depends(auth.usuario_actual)):
 
 
 @app.post("/modelos/{v}/activar")
-def activar_modelo(v: str, usuario=Depends(auth.usuario_actual)):
+def activar_modelo(v: str, usuario=Depends(auth.requiere_rol("admin"))):
     exito = registro.activar_modelo(v)
     if not exito:
         raise HTTPException(status_code=404, detail=f"No se encontró la versión {v} o no tiene pesos válidos.")

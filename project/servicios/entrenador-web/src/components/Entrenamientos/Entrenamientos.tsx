@@ -28,6 +28,7 @@ import { plural } from "../../utils/formato";
 import PanelError from "../comunes/PanelError";
 import { claseEtiqueta, claseTarjeta, claseTextoSuave } from "../comunes/estilos";
 import TarjetaTrabajo from "./TarjetaTrabajo";
+import { usePermisos } from "../../context/sesion";
 
 // La API acepta múltiplos de 32 entre 320 y 1280; estos son los razonables
 const TAMANOS_IMAGEN = [320, 416, 512, 640, 800, 960, 1280];
@@ -42,6 +43,7 @@ const ESPERA_TRAS_CORTE_MS = 5000;
 const claveElegida = (claves: SharedSelection) => (claves === "all" ? "" : String(Array.from(claves)[0] ?? ""));
 
 export default function Entrenamientos() {
+  const { puedeAportar } = usePermisos();
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [modelos, setModelos] = useState<Modelo[]>([]);
   const [trabajos, setTrabajos] = useState<Trabajo[]>([]);
@@ -336,9 +338,10 @@ export default function Entrenamientos() {
             </p>
           )}
 
-          <Button color="primary" onPress={enviar} isDisabled={!puedeEnviar} isLoading={enviando} className="dark:bg-blue-700">
+          <Button color="primary" onPress={enviar} isDisabled={!puedeAportar || !puedeEnviar} isLoading={enviando} className="dark:bg-blue-700">
             Encolar entrenamiento
           </Button>
+          {!puedeAportar && <p className={`text-sm ${claseTextoSuave}`}>Tu rol es de solo lectura: podés seguir los entrenamientos, no encolar nuevos.</p>}
           {elegidos.length > 0 && !splitValido && (
             <p className="text-sm text-amber-700 dark:text-amber-300">
               Hace falta al menos una imagen para entrenar y otra para validar. Un aporte de una sola imagen va entero a
