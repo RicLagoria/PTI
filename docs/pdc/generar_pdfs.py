@@ -26,6 +26,12 @@ DOCUMENTOS = [
     ("entrega-3-comunicacion/informe.md", "Tarea3-Informe-Comunicacion.pdf"),
     ("entrega-4-middleware/README.md", "Tarea4-Certificado-COMPLETO.pdf"),
     ("entrega-4-middleware/informe.md", "Tarea4-Informe-Middleware.pdf"),
+    ("entrega-5-seguridad/README.md", "Tarea5-Certificado-Seguridad.pdf"),
+    ("entrega-5-seguridad/informe-amenazas.md", "Tarea5-Informe-Amenazas.pdf"),
+    ("entrega-6-patrones/README.md", "Tarea6-Certificado-Patrones-y-Escalabilidad.pdf"),
+    ("final/README.md", "Final-Certificado-Integracion.pdf"),
+    ("final/guion-demo.md", "Final-Guion-Demo.pdf"),
+    ("final/preguntas-defensa.md", "Final-Preguntas-Defensa.pdf"),
 ]
 
 NAVEGADORES = [
