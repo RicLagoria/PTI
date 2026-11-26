@@ -10,16 +10,22 @@ con las dos. Lo que se espera:
     p. ej. 404 porque la imagen de prueba no existe, pero NO 403).
   - Sin token: 401.
 
-Uso (con compose.dev.yml levantado):
-    python docs/pdc/entrega-5-seguridad/probar_roles.py
-    python docs/pdc/entrega-5-seguridad/probar_roles.py http://localhost:8000
+Uso:
+    python docs/pdc/entrega-5-seguridad/probar_roles.py                         # por el gateway HTTPS (compose.pdc.yml)
+    python docs/pdc/entrega-5-seguridad/probar_roles.py http://localhost:8000   # directo, solo compose.dev.yml
 """
 import json
+import ssl
 import sys
+from pathlib import Path
 import urllib.error
 import urllib.request
 
-API = sys.argv[1] if len(sys.argv) > 1 else "http://localhost:8000"
+API = sys.argv[1] if len(sys.argv) > 1 else "https://localhost/api"
+# El certificado del gateway es autofirmado: en vez de apagar la verificación,
+# le decimos a Python que confíe en ese certificado puntual.
+CERT = Path(__file__).resolve().parents[3] / "despliegue/nginx/certs/agrovision.crt"
+CONTEXTO = ssl.create_default_context(cafile=str(CERT)) if CERT.exists() else None
 CUENTAS = {"lector": "Lector2026!", "santigodoy52": "Santiago2026!"}
 IMAGEN_INEXISTENTE = "00000000-0000-0000-0000-000000000000"
 
@@ -32,7 +38,7 @@ def pedir(metodo, ruta, token=None, cuerpo=None):
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(req) as r:
+        with urllib.request.urlopen(req, context=CONTEXTO) as r:
             return r.status
     except urllib.error.HTTPError as e:
         return e.code
@@ -43,7 +49,7 @@ def entrar(usuario, contrasena):
         API + "/auth/login", method="POST",
         data=json.dumps({"usuario": usuario, "contrasena": contrasena}).encode(),
         headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req) as r:
+    with urllib.request.urlopen(req, context=CONTEXTO) as r:
         return json.load(r)["token"]
 
 

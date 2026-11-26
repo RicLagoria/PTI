@@ -1,0 +1,60 @@
+# Despliegue del final de PDC: se suma ENCIMA de compose.dev.yml.
+#
+#   bash despliegue/pdc/generar-certificado.sh          (una sola vez)
+#   docker compose -f despliegue/compose.dev.yml -f despliegue/compose.pdc.yml up -d --build
+#   -> https://localhost   (el navegador avisa: el certificado es autofirmado)
+#
+# Qué cambia respecto de compose.dev.yml:
+#   - Seguridad: entra todo por el gateway con HTTPS (443) y el 80 redirige.
+#     La base, cliente-api, ia-inferencia y el registro dejan de publicar
+#     puertos: solo se hablan dentro de la red de Docker.
+#   - Disponibilidad: healthchecks y restart en cliente-api e ia-inferencia;
+#     si una réplica se cae, el gateway manda el pedido a otra.
+#   - Escalabilidad: cliente-api no guarda estado propio (sesión en el JWT,
+#     datos en PostGIS, archivos en el volumen compartido), así que se puede
+#     correr N veces:  bash despliegue/pdc/escalar.sh 3
+#
+# `!override` reemplaza la lista de puertos del archivo base en vez de sumarla
+# (necesita Compose v2.24 o posterior).
+services:
+  gateway:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/gateway.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - cliente-web
+      - cliente-api
+    restart: unless-stopped
+
+  db:
+    ports: !override []
+
+  registro-servicios:
+    ports: !override []
+
+  ia-inferencia:
+    ports: !override []
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/salud', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  cliente-api:
+    ports: !override []
+    environment:
+      FRONTEND_ORIGIN: https://localhost
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/salud', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  cliente-web:
+    ports: !override []

@@ -1,0 +1,9 @@
+API: https://localhost/api
+
+pedido                                                  sin token  lector colaborador
+GET /imagenes                                                 401     200         200
+GET /estadisticas                                             401     200         200
+POST /imagenes?nombre=prueba.tif                              401     403         400
+POST /imagenes/00000000-0000-0000-0000-000000000000/analizar       401     403         404
+
+OK: cada rol hace solo lo que le toca.

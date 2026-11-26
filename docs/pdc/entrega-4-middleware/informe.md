@@ -257,9 +257,9 @@ opcional, en `compose.cliente.yml`:
 
 ```bash
 docker compose -f despliegue/compose.dev.yml up -d --build
-curl localhost:8003/servicios/ia-inferencia          # la instancia anunciada
+curl localhost:8004/servicios/ia-inferencia          # la instancia anunciada
 python contratos/verificar_contratos.py ia-inferencia=http://localhost:8001 \
-  cliente-api=http://localhost:8000 registro-servicios=http://localhost:8003
+  cliente-api=http://localhost:8000 registro-servicios=http://localhost:8004
 ```
 
 ## 7. Límites conocidos

@@ -5,82 +5,73 @@
 > Qué evalúa esta entrega: que el grupo haya pensado qué pasa cuando algo falla o es atacado,
 > no solo el camino feliz.
 
-> **Estado al momento:** el checklist refleja lo que el repositorio hace hoy (rama
-> `pdc/santiago-godoy`). Solo la autenticación está implementada. Para el resto se deja una
-> **propuesta** de cómo quedaría en la próxima entrega, sin marcarlo como cumplido.
-
 ## Datos generales
 
 | Campo | Valor |
 |---|---|
-| **Grupo N°** | _Completar_ (Godoy – Iriarte – Lagoria) |
-| **Tag / Release de esta entrega** | _Completar_ (propuesto: `v5-seguridad`) |
-| **Fecha de entrega** | _dd/mm/aaaa_ |
+| **Grupo N°** | 1 (Godoy – Iriarte – Lagoria) |
+| **Tag / Release de esta entrega** | `v5-seguridad` |
+| **Rama** | `pdc/final` |
 
 ## Checklist de la entrega
 
 | Requisito | Cumple | Justificación breve / evidencia |
 |---|---|---|
-| Hay autenticación de usuarios implementada. | **Sí** | `cliente-api/app/auth.py`: login contra Postgres (`POST /auth/login`), contraseñas con bcrypt, JWT HS256 con vencimiento de 12 h. Todos los endpoints de `/imagenes` exigen token válido (`Depends(auth.usuario_actual)`). Usuarios cargados con `crear_usuarios.py`. |
-| Hay autorización / control de acceso implementado (no todos los usuarios pueden todo). | **No** | La tabla `usuarios` ya guarda `rol` (`admin` / `colaborador`) y viaja dentro del JWT, pero ningún endpoint lo consulta: todo usuario autenticado puede subir, ver y analizar todas las imágenes. **Propuesta:** ver §A. |
-| La comunicación entre componentes está cifrada en tránsito (HTTPS/TLS). | **No** | El nginx de `cliente-web` escucha en el puerto 80 (HTTP) y no hay certificados. El tráfico navegador → gateway → API → Postgres/IA viaja sin cifrar. **Propuesta:** ver §B. |
-| Hay un mecanismo de replicación o recuperación ante fallos implementado y probado. | **No** | Hoy solo hay `restart: unless-stopped` en los servicios y un `healthcheck` de Postgres, que reinician procesos caídos pero no recuperan datos perdidos. No hay backup, réplica ni prueba de recuperación. **Propuesta:** ver §C. |
-| Se incluyó un informe corto de amenazas consideradas (qué se protegió y de qué). | **No** | Todavía no existe el informe. Sí se relevaron las debilidades actuales (§D) como insumo. **Propuesta:** ver §D. |
+| Hay autenticación de usuarios implementada. | **Sí** | `cliente-api/app/auth.py`: login contra PostgreSQL (`POST /auth/login`), contraseñas con bcrypt, JWT HS256 que vence a las 12 h. Todo endpoint salvo `/salud` y el login exige token. `ia-entrenamiento` verifica la firma del mismo JWT. |
+| Hay autorización / control de acceso implementado (no todos los usuarios pueden todo). | **Sí** | Tres roles (§A), controlados en las **dos APIs** con `requiere_rol()`; los fronts esconden lo que el rol no puede hacer. Prueba: [`probar_roles.py`](probar_roles.py) → [evidencia](evidencias/roles.txt). |
+| La comunicación entre componentes está cifrada en tránsito (HTTPS/TLS). | **Sí** | Gateway nginx con TLS 1.2/1.3 en el 443 y redirección `80 → 443` (§B). Los puertos internos (API, IA, base, registro) ya no se publican. [Evidencia](evidencias/tls.txt). |
+| Hay un mecanismo de replicación o recuperación ante fallos implementado y probado. | **Sí** | Backup y restauración de la base con `pg_dump` / `pg_restore`, más una prueba que restaura en una base aparte y compara las filas (§C). Además: healthchecks, `restart` y réplicas de `cliente-api` con failover en el gateway. [Evidencia](evidencias/recuperacion.txt). |
+| Se incluyó un informe corto de amenazas consideradas (qué se protegió y de qué). | **Sí** | [`informe-amenazas.md`](informe-amenazas.md): análisis STRIDE, qué se mitigó y qué queda como riesgo aceptado. |
 
-## Propuestas para la próxima entrega
+## A. Autorización por rol
 
-### A. Autorización por rol
+El rol viaja dentro del JWT, así que verificarlo no consulta la base. Cada nivel incluye lo del anterior:
 
-- Dependency `require_rol("admin")` en `auth.py`, apoyada en el `rol` que ya viaja en el JWT.
-- Permisos propuestos:
+| Acción | `lector` | `colaborador` | `admin` |
+|---|---|---|---|
+| Ver ortomosaicos, mapa, análisis, historial, estadísticas y exportar | Sí | Sí | Sí |
+| Subir ortomosaicos y correr análisis nuevos | — | Sí | Sí |
+| Subir aportes, derivar escalas, encolar y cancelar entrenamientos | — | Sí | Sí |
+| Borrar aportes y activar un modelo | — | — | Sí |
 
-| Acción | `admin` | `colaborador` |
-|---|---|---|
-| Subir ortomosaico | Sí | Sí |
-| Ver / analizar imágenes propias | Sí | Sí |
-| Ver imágenes de otros usuarios | Sí | No |
-| Borrar imágenes | Sí | Solo las propias |
-| Administrar usuarios | Sí | No |
+- Código: `requiere_rol()` en [`cliente-api/app/auth.py`](../../../project/servicios/cliente-api/app/auth.py) y en [`ia-entrenamiento/api/auth.py`](../../../project/servicios/ia-entrenamiento/api/auth.py).
+- La base solo acepta esos tres valores: [`base-datos/init/06_roles.sql`](../../../project/servicios/base-datos/init/06_roles.sql).
+- El rol se chequea **antes** de buscar la imagen: un lector recibe `403` y no se entera de qué imágenes existen.
+- Cuenta de demo: `lector` (alta en `crear_usuarios.py`).
 
-- Guardar el `propietario` en `meta.json` de cada imagen y filtrar `GET /imagenes` por él.
-- Prueba: script con dos tokens que verifica `403` al acceder a una imagen ajena.
+## B. Cifrado en tránsito
 
-### B. Cifrado en tránsito (TLS)
+- [`despliegue/compose.pdc.yml`](../../../despliegue/compose.pdc.yml) se suma a `compose.dev.yml` y agrega un **gateway** ([`nginx/gateway.conf`](../../../despliegue/nginx/gateway.conf)), que es la única puerta de entrada.
+- Certificado autofirmado generado con `despliegue/pdc/generar-certificado.sh`. La clave no va a git.
+- Cabeceras de seguridad: HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` y `Referrer-Policy`.
+- **Límite de login**: 5 intentos por minuto por IP, con una ráfaga de 5; pasado eso responde `429`, para frenar la fuerza bruta.
+- Dentro de la red de Docker el tráfico sigue en HTTP: esa red no es accesible desde afuera (ver el informe de amenazas).
 
-- nginx de `cliente-web` escucha en `443` con certificado y redirige `80 → 443`.
-  Desarrollo: certificado autofirmado generado con `openssl`; despliegue real: Let's Encrypt si hay dominio.
-- `cliente-api` e `ia-inferencia` dejan de publicar puertos al host (`8000`, `8001`, `5432`): el único punto de entrada es el gateway por HTTPS.
-- Postgres con `sslmode=require` en `DATABASE_URL`.
-- Prueba: `curl -I http://...` devuelve `301`; `curl -k https://...` devuelve `200`.
+## C. Recuperación ante fallos
 
-### C. Recuperación ante fallos
+| Falla | Qué la cubre |
+|---|---|
+| Se pierde o se corrompe la base | `pdc/backup.sh` (`pg_dump`) y `pdc/restaurar.sh` (`pg_restore`). |
+| Se cuelga un proceso | `healthcheck` en `db`, `cliente-api` e `ia-inferencia`, con `restart: unless-stopped`. |
+| Se cae una réplica de `cliente-api` | El gateway reintenta en otra (`proxy_next_upstream`), así que el usuario no ve el error. |
+| Se cae el worker de entrenamiento a mitad de un trabajo | La cola en disco de `ia-entrenamiento` retoma el trabajo cuando el worker vuelve. |
 
-- Script `backup.sh` con `pg_dump` de Postgres y copia de `datos/ortomosaicos`, con retención (por ejemplo, los últimos 7) y ejecución diaria con cron.
-- Script `restaurar.sh` que recrea la base desde el último backup.
-- Prueba reproducible, a la manera de `probar-nodos.sh`: crear usuario e imagen → backup → destruir el volumen de la base → restaurar → verificar que el login y el listado siguen funcionando. Se guarda la salida en `salida-prueba.txt`.
-- Opcional si sobra tiempo: réplica de streaming de Postgres en un segundo contenedor.
-- Sumar `healthcheck` a `cliente-api` e `ia-inferencia` (hoy solo lo tiene `db`) y `depends_on: condition: service_healthy`.
+**Prueba de recuperación** (`bash despliegue/pdc/probar-recuperacion.sh`):
 
-### D. Informe de amenazas
+1. Cuenta las filas de las tablas principales.
+2. Hace un backup y lo restaura en una base aparte (`agrovision_prueba`), sin tocar la real.
+3. Compara las filas tabla por tabla y mide el tiempo de restauración.
 
-Tabla STRIDE sobre lo que existe, con **qué se protege**, **de qué** y **cómo**. Debilidades relevadas hoy que el informe debe cubrir:
+Resultado: las 4 tablas coinciden, en unos 40 s. [Salida](evidencias/recuperacion.txt).
 
-| Debilidad actual | Amenaza | Mitigación propuesta |
-|---|---|---|
-| `JWT_SECRET` con valor por defecto en el código y en los compose | Falsificación de tokens | Exigir la variable en producción; fallar al arrancar si falta |
-| Token aceptado también como `?token=` (necesario para teselas y SSE) | Fuga del token en logs y en el historial | Cookie `HttpOnly` o tokens de corta vida solo para teselas |
-| Contraseñas iniciales escritas en `crear_usuarios.py` | Credenciales en el historial de git | Leerlas de variables de entorno; forzar cambio en el primer ingreso |
-| Contraseña de Postgres `agrovision/agrovision` por defecto y puerto 5432 expuesto en `compose.dev.yml` | Acceso directo a la base | Secreto por `.env`; no publicar el puerto |
-| Sin límite de intentos de login | Fuerza bruta | Rate limiting en nginx o en la API |
-| Sin autorización por rol ni por propietario | Acceso a datos ajenos | §A |
-| HTTP plano | Intercepción y manipulación | §B |
-| Sin backups | Pérdida de datos por falla o borrado | §C |
-| Subida de archivos de hasta 8 GB sin cuota | Denegación de servicio por disco | Cuota por usuario |
+## Cómo reproducir todo
 
-## Evidencia adicional
-
-- Código de la autenticación: [`project/servicios/cliente-api/app/auth.py`](../../../project/servicios/cliente-api/app/auth.py)
-- Informe de amenazas y prueba de recuperación ante fallos: _pendientes para la próxima entrega_ (§C y §D).
+```bash
+bash despliegue/pdc/generar-certificado.sh
+docker compose -f despliegue/compose.dev.yml -f despliegue/compose.pdc.yml up -d --build
+python docs/pdc/entrega-5-seguridad/probar_roles.py
+bash despliegue/pdc/probar-recuperacion.sh
+```
 
 ---
 

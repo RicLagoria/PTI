@@ -1,10 +1,11 @@
 services:
   # Descubrimiento de servicios (Entrega 4 de PDC). Publicado para que el plano
   # Cliente, en otra máquina, pueda preguntar por las instancias de inferencia.
+  # En el host va al 8004 porque el 8003 es de entrenador-web.
   registro-servicios:
     build: ../project/servicios/registro-servicios
     ports:
-      - "8003:8003"
+      - "8004:8003"
     restart: unless-stopped
 
   ia-inferencia:

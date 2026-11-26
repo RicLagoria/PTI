@@ -30,7 +30,7 @@ Documentación de la API:
 - Reglas de contrato y versionado: [`contratos/README.md`](../../../contratos/README.md)
 - Swagger interactivo de cada servicio (con el entorno levantado):
   `cliente-api` <http://localhost:8000/docs> · `ia-inferencia` <http://localhost:8001/docs> ·
-  `ia-entrenamiento` <http://localhost:8002/docs> · `registro-servicios` <http://localhost:8003/docs>
+  `ia-entrenamiento` <http://localhost:8002/docs> · `registro-servicios` <http://localhost:8004/docs>
 
 Cómo reproducir (sin Docker, con las dependencias de los servicios instaladas):
 

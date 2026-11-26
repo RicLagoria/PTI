@@ -246,3 +246,6 @@ node_modules/
 *.zip
 *.tif
 *.tif.aux.xml
+
+# Certificado autofirmado del gateway de PDC (la clave no va a git)
+despliegue/nginx/certs/

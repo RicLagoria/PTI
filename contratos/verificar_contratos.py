@@ -17,7 +17,7 @@ Uso:
     python contratos/verificar_contratos.py \
         ia-inferencia=http://localhost:8001 \
         cliente-api=http://localhost:8000 \
-        registro-servicios=http://localhost:8003
+        registro-servicios=http://localhost:8004
     python contratos/verificar_contratos.py --contratos-dir otra/carpeta ia-inferencia=...
 """
 import argparse

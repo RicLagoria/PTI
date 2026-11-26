@@ -1,0 +1,11 @@
+Backup: ../datos/backups/agrovision-20261125-214301.dump (36K)
+NOTICE:  database "agrovision_prueba" does not exist, skipping
+Restaurado en 'agrovision_prueba'.
+
+tabla|original|restaurada
+analisis|5|5
+detecciones|225|225
+ortomosaicos|2|2
+usuarios|8|8
+
+OK: el backup se restauró completo en 42 s.

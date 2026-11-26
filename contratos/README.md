@@ -46,7 +46,7 @@ con código 1 si difieren en versión, rutas, métodos, parámetros o código de
 ```bash
 python contratos/verificar_contratos.py \
   ia-inferencia=http://localhost:8001 ia-entrenamiento=http://localhost:8002 \
-  registro-servicios=http://localhost:8003 cliente-api=http://localhost:8000
+  registro-servicios=http://localhost:8004 cliente-api=http://localhost:8000
 ```
 
 Correrlo antes de abrir un PR que toque un `server.py`. Si falla, o se

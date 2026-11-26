@@ -1,0 +1,27 @@
+# Evidencia TLS y superficie expuesta (26/11/2026)
+
+$ curl -s -o /dev/null -w "%{http_code} -> %{redirect_url}" http://localhost/
+301 -> https://localhost/
+
+$ openssl s_client -connect localhost:443 (protocolo y certificado)
+subject=CN=localhost, O=AgroVision PDC
+New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384
+    Protocol  : TLSv1.3
+
+$ curl --cacert agrovision.crt -D - https://localhost/api/salud   (cabeceras)
+HTTP/1.1 200 OK
+X-Atendido-Por: 172.19.0.7:8000
+Strict-Transport-Security: max-age=31536000
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Referrer-Policy: no-referrer
+
+$ puertos internos desde el host (deben estar cerrados)
+8000: cerrado
+8001: cerrado
+8004: cerrado
+5432: cerrado
+8080: cerrado
+
+$ 8 logins fallidos seguidos (límite: 5 por minuto por IP)
+401 401 401 401 401 401 429 429 
